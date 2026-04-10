@@ -1,0 +1,45 @@
+{% extends "_layouts/cp" %}
+{% import "_includes/forms" as forms %}
+
+{% set title = "Tidy Tags"|t('tidytags') %}
+{% set selectedSubnavItem = "dashboard" %}
+
+{% block content %}
+<div class="tidytags-dashboard">
+    {% if rows|length == 0 %}
+        <p>No tag groups found. Create one in <a href="{{ cpUrl('settings/tags') }}">Settings → Tags</a>.</p>
+    {% else %}
+        <table class="data fullwidth">
+            <thead>
+                <tr>
+                    <th>Group</th>
+                    <th>Total Tags</th>
+                    {% for site in sites %}
+                        <th>{{ site.name }}</th>
+                    {% endfor %}
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                    <tr>
+                        <td>
+                            <strong>{{ row.group.name }}</strong><br>
+                            <code style="font-size:11px;color:#596673;">{{ row.group.handle }}</code>
+                        </td>
+                        <td>{{ row.total }}</td>
+                        {% for site in sites %}
+                            <td>
+                                <span class="site-count">{{ row.countsBySite[site.id] ?? 0 }}</span>
+                            </td>
+                        {% endfor %}
+                        <td>
+                            <a class="btn small" href="{{ cpUrl('tidytags/group/' ~ row.group.id) }}">Manage</a>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+</div>
+{% endblock %}

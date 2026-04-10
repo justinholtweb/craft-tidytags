@@ -1,0 +1,23 @@
+{
+    "name": "justinholtweb/craft-tidytags",
+    "description": "Tag manager for Craft CMS 5 with multi-site support and duplicate detection.",
+    "type": "craft-plugin",
+    "license": "proprietary",
+    "require": {
+        "php": ">=8.2",
+        "craftcms/cms": "^5.0.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "justinholtweb\\tidytags\\": "src/"
+        }
+    },
+    "extra": {
+        "handle": "tidytags",
+        "name": "Tidy Tags",
+        "developer": "Justin Holt",
+        "developerUrl": "https://justinholt.dev",
+        "documentationUrl": "https://github.com/justinholtweb/craft-tidytags",
+        "class": "justinholtweb\\tidytags\\Plugin"
+    }
+}

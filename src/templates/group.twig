@@ -1,0 +1,205 @@
+{% extends "_layouts/cp" %}
+{% import "_includes/forms" as forms %}
+
+{% set title = group.name %}
+{% set selectedSubnavItem = "dashboard" %}
+
+{% set crumbs = [
+    { label: "Tidy Tags"|t('tidytags'), url: cpUrl('tidytags') }
+] %}
+
+{% block content %}
+<div class="tidytags-group">
+    <form method="get" action="{{ cpUrl('tidytags/group/' ~ group.id) }}" style="margin-bottom:16px;">
+        <div class="flex">
+            {{ forms.text({
+                name: 'search',
+                value: search,
+                placeholder: 'Search tags...',
+                class: 'fullwidth',
+            }) }}
+            <div>
+                <label style="margin-right:6px;">Site:</label>
+                <select name="siteId" onchange="this.form.submit()">
+                    <option value="">All sites</option>
+                    {% for site in sites %}
+                        <option value="{{ site.id }}" {{ selectedSiteId == site.id ? 'selected' }}>{{ site.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button type="submit" class="btn submit">Filter</button>
+        </div>
+    </form>
+
+    <form id="tidytags-bulk-form" method="post" action="">
+        {{ csrfInput() }}
+        {{ redirectInput('tidytags/group/' ~ group.id ~ (selectedSiteId ? '/site/' ~ selectedSiteId : '')) }}
+
+        <div class="tidytags-actions">
+            <button type="button" class="btn" data-action="rename" disabled>Rename…</button>
+            <button type="button" class="btn" data-action="merge" disabled>Merge…</button>
+            <button type="button" class="btn delete" data-action="delete" disabled>Delete</button>
+            <span class="tidytags-selected-count" style="opacity:.7;font-size:12px;">0 selected</span>
+        </div>
+
+        {% if rows|length == 0 %}
+            <p>No tags found.</p>
+        {% else %}
+            <table class="data fullwidth collapsible">
+                <thead>
+                    <tr>
+                        <th class="tidytags-checkbox">
+                            <input type="checkbox" id="tidytags-select-all">
+                        </th>
+                        <th>Title</th>
+                        {% if selectedSiteId is null %}
+                            {% for site in sites %}
+                                <th>{{ site.handle }}</th>
+                            {% endfor %}
+                        {% endif %}
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                        {% set tag = row.tag %}
+                        <tr data-tag-id="{{ tag.id }}">
+                            <td class="tidytags-checkbox">
+                                <input type="checkbox" name="tagIds[]" value="{{ tag.id }}" class="tidytags-row-check">
+                            </td>
+                            <td class="tidytags-title-cell">
+                                <span class="tidytags-title">{{ tag.title }}</span>
+                            </td>
+                            {% if selectedSiteId is null %}
+                                {% for site in sites %}
+                                    <td>
+                                        {% set t = row.titles[site.id] ?? null %}
+                                        {% if t %}
+                                            <span style="font-size:12px;">{{ t }}</span>
+                                        {% else %}
+                                            <span style="color:#b0b7bf;">—</span>
+                                        {% endif %}
+                                    </td>
+                                {% endfor %}
+                            {% endif %}
+                            <td>
+                                {% set editUrl = tag.cpEditUrl ?? null %}
+                                {% if editUrl %}
+                                    <a class="btn small" href="{{ editUrl }}" target="_blank" rel="noopener">Edit</a>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+    </form>
+</div>
+
+{% js %}
+(function(){
+    var form = document.getElementById('tidytags-bulk-form');
+    if (!form) return;
+
+    var selectAll = document.getElementById('tidytags-select-all');
+    var checks = form.querySelectorAll('.tidytags-row-check');
+    var countEl = form.querySelector('.tidytags-selected-count');
+    var btnRename = form.querySelector('[data-action="rename"]');
+    var btnMerge  = form.querySelector('[data-action="merge"]');
+    var btnDelete = form.querySelector('[data-action="delete"]');
+
+    function selected() {
+        return Array.prototype.filter.call(checks, function(c){ return c.checked; });
+    }
+
+    function update() {
+        var n = selected().length;
+        countEl.textContent = n + ' selected';
+        btnRename.disabled = n !== 1;
+        btnMerge.disabled = n < 2;
+        btnDelete.disabled = n === 0;
+    }
+
+    if (selectAll) {
+        selectAll.addEventListener('change', function(){
+            Array.prototype.forEach.call(checks, function(c){ c.checked = selectAll.checked; });
+            update();
+        });
+    }
+    Array.prototype.forEach.call(checks, function(c){
+        c.addEventListener('change', update);
+    });
+
+    btnDelete.addEventListener('click', function(){
+        var sel = selected();
+        if (!sel.length) return;
+        if (!confirm('Delete ' + sel.length + ' tag(s)? This cannot be undone.')) return;
+        form.action = Craft.getActionUrl('tidytags/tags/delete');
+        form.submit();
+    });
+
+    btnRename.addEventListener('click', function(){
+        var sel = selected();
+        if (sel.length !== 1) return;
+        var tagId = sel[0].value;
+        var row = sel[0].closest('tr');
+        var current = row.querySelector('.tidytags-title').textContent.trim();
+        var next = prompt('New title for "' + current + '":', current);
+        if (next === null || next === '' || next === current) return;
+
+        var data = new FormData();
+        data.append(Craft.csrfTokenName, Craft.csrfTokenValue);
+        data.append('tagId', tagId);
+        data.append('title', next);
+        {% if selectedSiteId %}data.append('siteId', '{{ selectedSiteId }}');{% endif %}
+
+        fetch(Craft.getActionUrl('tidytags/tags/rename'), {
+            method: 'POST',
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: data
+        })
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+            if (j.success) { Craft.cp.displayNotice('Tag renamed.'); location.reload(); }
+            else { Craft.cp.displayError('Rename failed.'); }
+        });
+    });
+
+    btnMerge.addEventListener('click', function(){
+        var sel = selected();
+        if (sel.length < 2) return;
+        var titles = sel.map(function(c){
+            return c.closest('tr').querySelector('.tidytags-title').textContent.trim();
+        });
+        var keepIndex = prompt(
+            'Which tag should be kept? Enter a number 1-' + sel.length + ':\n' +
+            titles.map(function(t, i){ return (i+1) + '. ' + t; }).join('\n')
+        );
+        keepIndex = parseInt(keepIndex, 10);
+        if (!keepIndex || keepIndex < 1 || keepIndex > sel.length) return;
+        var targetId = sel[keepIndex - 1].value;
+        var sourceIds = sel.filter(function(c){ return c.value !== targetId; }).map(function(c){ return c.value; });
+
+        if (!confirm('Merge ' + sourceIds.length + ' tag(s) into "' + titles[keepIndex-1] + '"? Source tags will be deleted.')) return;
+
+        var data = new FormData();
+        data.append(Craft.csrfTokenName, Craft.csrfTokenValue);
+        data.append('targetId', targetId);
+        sourceIds.forEach(function(id){ data.append('sourceIds[]', id); });
+
+        fetch(Craft.getActionUrl('tidytags/tags/merge'), {
+            method: 'POST',
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: data
+        })
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+            if (j.success) { Craft.cp.displayNotice('Tags merged.'); location.reload(); }
+            else { Craft.cp.displayError('Merge failed.'); }
+        });
+    });
+
+    update();
+})();
+{% endjs %}
+{% endblock %}

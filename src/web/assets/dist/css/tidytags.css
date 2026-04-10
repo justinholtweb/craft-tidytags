@@ -1,0 +1,86 @@
+.tidytags-dashboard table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.tidytags-dashboard table th,
+.tidytags-dashboard table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #e5e9ec;
+    text-align: left;
+    vertical-align: middle;
+}
+
+.tidytags-dashboard table th {
+    font-weight: 600;
+    background: #f8f9fb;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #596673;
+}
+
+.tidytags-dashboard .site-count {
+    display: inline-block;
+    padding: 2px 8px;
+    background: #eef1f5;
+    border-radius: 10px;
+    font-size: 11px;
+    margin-right: 4px;
+    color: #33455c;
+}
+
+.tidytags-group table .tidytags-checkbox {
+    width: 28px;
+}
+
+.tidytags-group .tidytags-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 16px;
+    padding: 12px;
+    background: #f8f9fb;
+    border-radius: 4px;
+}
+
+.tidytags-group .tidytags-title-cell {
+    font-weight: 500;
+}
+
+.tidytags-group .tidytags-site-titles {
+    font-size: 11px;
+    color: #596673;
+    margin-top: 2px;
+}
+
+.tidytags-duplicates .cluster {
+    margin-bottom: 20px;
+    padding: 16px;
+    border: 1px solid #e5e9ec;
+    border-radius: 4px;
+    background: #fff;
+}
+
+.tidytags-duplicates .cluster h3 {
+    margin: 0 0 10px 0;
+    font-size: 13px;
+    color: #596673;
+}
+
+.tidytags-duplicates .cluster ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.tidytags-duplicates .cluster li {
+    padding: 6px 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.tidytags-warning {
+    font-family: inherit;
+}
