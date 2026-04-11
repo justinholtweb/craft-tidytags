@@ -6,147 +6,20 @@ use Craft;
 use craft\base\Component;
 use craft\db\Query;
 use craft\elements\Tag;
-use craft\models\Site;
-use craft\models\TagGroup;
 use Throwable;
 
 /**
- * Tag management service for the Tidy Tags plugin.
+ * Tag element mutations — rename, delete, merge.
+ *
+ * Reads have moved to the Sources service, which unifies native tag groups
+ * with tag-like entry sections. These mutations are intentionally tag-only:
+ * entry-backed sources are read-only in Tidy Tags because entries carry URLs,
+ * bodies, drafts, and authorship that can't be safely mutated through a
+ * tag-sized interface. The `Tag::find()->id()` scoping enforces that on the
+ * server side — an entry ID posted to these actions simply won't resolve.
  */
 class Tags extends Component
 {
-    /**
-     * Returns every tag group defined in the project.
-     *
-     * @return TagGroup[]
-     */
-    public function getAllGroups(): array
-    {
-        return Craft::$app->getTags()->getAllTagGroups();
-    }
-
-    /**
-     * Returns a tag group by its ID, or null if it does not exist.
-     */
-    public function getGroupById(int $groupId): ?TagGroup
-    {
-        return Craft::$app->getTags()->getTagGroupById($groupId);
-    }
-
-    /**
-     * Returns every site defined in the project.
-     *
-     * @return Site[]
-     */
-    public function getAllSites(): array
-    {
-        return Craft::$app->getSites()->getAllSites();
-    }
-
-    /**
-     * Returns per-site tag counts for a group.
-     *
-     * @return array<int, int> siteId => count
-     */
-    public function getGroupCountsBySite(int $groupId): array
-    {
-        $counts = [];
-        foreach ($this->getAllSites() as $site) {
-            $counts[$site->id] = Tag::find()
-                ->groupId($groupId)
-                ->siteId($site->id)
-                ->status(null)
-                ->count();
-        }
-        return $counts;
-    }
-
-    /**
-     * Returns the total distinct-element count for a group across all sites.
-     */
-    public function getGroupTotalCount(int $groupId): int
-    {
-        return (int)Tag::find()
-            ->groupId($groupId)
-            ->site('*')
-            ->unique()
-            ->status(null)
-            ->count();
-    }
-
-    /**
-     * Returns tags in a group.
-     *
-     * When $siteId is null, returns one row per element (primary site) plus
-     * an array of per-site titles keyed by siteId. Otherwise returns tags
-     * scoped to the given site.
-     *
-     * @return array<int, array{tag: Tag, titles: array<int, string>}>
-     */
-    public function getTagsInGroup(int $groupId, ?int $siteId = null, ?string $search = null): array
-    {
-        $sites = $this->getAllSites();
-
-        if ($siteId !== null) {
-            $query = Tag::find()
-                ->groupId($groupId)
-                ->siteId($siteId)
-                ->status(null)
-                ->orderBy(['title' => SORT_ASC]);
-
-            if ($search !== null && $search !== '') {
-                $query->search($search);
-            }
-
-            $result = [];
-            foreach ($query->all() as $tag) {
-                $result[] = [
-                    'tag' => $tag,
-                    'titles' => [$tag->siteId => $tag->title],
-                ];
-            }
-            return $result;
-        }
-
-        $primarySite = Craft::$app->getSites()->getPrimarySite();
-
-        $query = Tag::find()
-            ->groupId($groupId)
-            ->siteId($primarySite->id)
-            ->status(null)
-            ->orderBy(['title' => SORT_ASC]);
-
-        if ($search !== null && $search !== '') {
-            $query->search($search);
-        }
-
-        $primaryTags = $query->all();
-        $elementIds = array_map(fn($t) => $t->id, $primaryTags);
-
-        $perSiteTitles = [];
-        if (!empty($elementIds)) {
-            foreach ($sites as $site) {
-                $siteTags = Tag::find()
-                    ->id($elementIds)
-                    ->siteId($site->id)
-                    ->status(null)
-                    ->all();
-                foreach ($siteTags as $st) {
-                    $perSiteTitles[$st->id][$site->id] = $st->title;
-                }
-            }
-        }
-
-        $result = [];
-        foreach ($primaryTags as $tag) {
-            $result[] = [
-                'tag' => $tag,
-                'titles' => $perSiteTitles[$tag->id] ?? [$tag->siteId => $tag->title],
-            ];
-        }
-        return $result;
-    }
-
     /**
      * Renames a tag.
      *
@@ -170,7 +43,7 @@ class Tags extends Component
         }
 
         $ok = true;
-        foreach ($this->getAllSites() as $site) {
+        foreach (Craft::$app->getSites()->getAllSites() as $site) {
             $tag = Tag::find()->id($tagId)->siteId($site->id)->status(null)->one();
             if ($tag === null) {
                 continue;

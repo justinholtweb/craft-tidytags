@@ -1,7 +1,7 @@
 {% extends "_layouts/cp" %}
 {% import "_includes/forms" as forms %}
 
-{% set title = "Duplicate Tags"|t('tidytags') %}
+{% set title = "Duplicates"|t('tidytags') %}
 {% set selectedSubnavItem = "duplicates" %}
 
 {% block content %}
@@ -25,6 +25,7 @@
         </div>
         <p style="font-size:12px;color:#596673;margin-top:6px;">
             Lower threshold = stricter matching. Default is 2 (catches typos and pluralization).
+            Entry-backed sources are scanned but can only be reviewed here — merge/delete are tag-only.
         </p>
     </form>
 
@@ -32,30 +33,53 @@
         <p>No duplicate clusters found at threshold {{ threshold }}.</p>
     {% else %}
         {% for result in results %}
+            {% set source = result.source %}
             <div class="cluster">
-                <h3>{{ result.group.name }}</h3>
+                <h3 style="display:flex;align-items:center;gap:8px;">
+                    <span>{{ source.name }}</span>
+                    <span class="tidytags-type-badge tidytags-type-{{ source.type }}"
+                          style="display:inline-block;padding:1px 6px;border-radius:10px;font-size:10px;text-transform:uppercase;letter-spacing:.04em;background:{{ source.type == 'tag' ? '#e3efff' : '#fff1e3' }};color:{{ source.type == 'tag' ? '#0b5394' : '#8a4b00' }};">
+                        {{ source.typeLabel }}
+                    </span>
+                </h3>
                 {% for cluster in result.clusters %}
-                    <form method="post" action="" style="border-top:1px solid #eef1f5;padding:8px 0;">
-                        {{ csrfInput() }}
-                        {{ actionInput('tidytags/tags/merge') }}
-                        {{ redirectInput('tidytags/duplicates' ~ (selectedSiteId ? '?siteId=' ~ selectedSiteId : '')) }}
-                        <ul>
-                            {% for item in cluster %}
-                                <li>
-                                    <input type="radio" name="targetId" value="{{ item.id }}" {{ loop.first ? 'checked' }} title="Keep this one">
-                                    <input type="checkbox" name="sourceIds[]" value="{{ item.id }}" {{ not loop.first ? 'checked' }} title="Merge into kept tag">
-                                    <strong>{{ item.title }}</strong>
-                                    <span style="color:#b0b7bf;font-size:11px;">#{{ item.id }}</span>
-                                </li>
-                            {% endfor %}
-                        </ul>
-                        <div style="margin-top:8px;">
-                            <button type="submit" class="btn submit small"
-                                onclick="return confirm('Merge selected tags into the target? This cannot be undone.');">
-                                Merge cluster
-                            </button>
+                    {% if source.isWritable %}
+                        <form method="post" action="" style="border-top:1px solid #eef1f5;padding:8px 0;">
+                            {{ csrfInput() }}
+                            {{ actionInput('tidytags/tags/merge') }}
+                            {{ redirectInput('tidytags/duplicates' ~ (selectedSiteId ? '?siteId=' ~ selectedSiteId : '')) }}
+                            <ul>
+                                {% for item in cluster %}
+                                    <li>
+                                        <input type="radio" name="targetId" value="{{ item.id }}" {{ loop.first ? 'checked' }} title="Keep this one">
+                                        <input type="checkbox" name="sourceIds[]" value="{{ item.id }}" {{ not loop.first ? 'checked' }} title="Merge into kept tag">
+                                        <strong>{{ item.title }}</strong>
+                                        <span style="color:#b0b7bf;font-size:11px;">#{{ item.id }}</span>
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                            <div style="margin-top:8px;">
+                                <button type="submit" class="btn submit small"
+                                    onclick="return confirm('Merge selected tags into the target? This cannot be undone.');">
+                                    Merge cluster
+                                </button>
+                            </div>
+                        </form>
+                    {% else %}
+                        <div style="border-top:1px solid #eef1f5;padding:8px 0;">
+                            <ul>
+                                {% for item in cluster %}
+                                    <li>
+                                        <strong>{{ item.title }}</strong>
+                                        <span style="color:#b0b7bf;font-size:11px;">#{{ item.id }}</span>
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                            <p style="margin-top:4px;font-size:11px;color:#8a8a8a;">
+                                Review these entries in their section to consolidate by hand.
+                            </p>
                         </div>
-                    </form>
+                    {% endif %}
                 {% endfor %}
             </div>
         {% endfor %}

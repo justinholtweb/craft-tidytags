@@ -27,20 +27,21 @@ class DashboardController extends Controller
     }
 
     /**
-     * Renders the dashboard with a list of tag groups and per-site counts.
+     * Renders the dashboard with every source (tag groups + configured entry
+     * sections) and their per-site counts.
      */
     public function actionIndex(): Response
     {
         $plugin = Plugin::$plugin;
-        $groups = $plugin->tags->getAllGroups();
-        $sites = $plugin->tags->getAllSites();
+        $sources = $plugin->sources->getAllSources();
+        $sites = Craft::$app->getSites()->getAllSites();
 
         $rows = [];
-        foreach ($groups as $group) {
+        foreach ($sources as $source) {
             $rows[] = [
-                'group' => $group,
-                'total' => $plugin->tags->getGroupTotalCount($group->id),
-                'countsBySite' => $plugin->tags->getGroupCountsBySite($group->id),
+                'source' => $source,
+                'total' => $plugin->sources->getTotalCount($source),
+                'countsBySite' => $plugin->sources->getCountsBySite($source),
             ];
         }
 
@@ -52,7 +53,7 @@ class DashboardController extends Controller
     }
 
     /**
-     * Renders the duplicate-scanner view with clusters for every group.
+     * Renders the duplicate-scanner view with clusters for every source.
      */
     public function actionDuplicates(): Response
     {
@@ -69,7 +70,7 @@ class DashboardController extends Controller
 
         return $this->renderTemplate('tidytags/duplicates', [
             'results' => $results,
-            'sites' => $plugin->tags->getAllSites(),
+            'sites' => Craft::$app->getSites()->getAllSites(),
             'selectedSiteId' => $siteId,
             'threshold' => $threshold ?? $plugin->duplicateDetector->defaultThreshold,
             'selectedSubnavItem' => 'duplicates',

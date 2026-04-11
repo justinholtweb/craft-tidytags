@@ -6,11 +6,16 @@ use Craft;
 use craft\web\Controller;
 use justinholtweb\tidytags\Plugin;
 use yii\web\BadRequestHttpException;
-use yii\web\NotFoundHttpException;
 use yii\web\Response;
 
 /**
- * Tag management controller handling the per-group view and tag mutations.
+ * Tag element mutations and the editor-side duplicate check endpoint.
+ *
+ * Browse/search views for all sources (including entry-backed tag-like
+ * sections) live in SourcesController. This controller is intentionally
+ * tag-only: rename, merge, and delete operate on Tag elements exclusively,
+ * and the element query scoping makes that safe even if a caller posts an
+ * entry ID — the record won't be found and the action no-ops.
  */
 class TagsController extends Controller
 {
@@ -26,31 +31,6 @@ class TagsController extends Controller
     {
         $this->requirePermission('accessPlugin-tidytags');
         return parent::beforeAction($action);
-    }
-
-    /**
-     * Renders the tag list for a group, optionally scoped to a single site.
-     */
-    public function actionGroup(int $groupId, ?int $siteId = null): Response
-    {
-        $plugin = Plugin::$plugin;
-        $group = $plugin->tags->getGroupById($groupId);
-
-        if ($group === null) {
-            throw new NotFoundHttpException('Tag group not found.');
-        }
-
-        $search = Craft::$app->getRequest()->getQueryParam('search');
-        $rows = $plugin->tags->getTagsInGroup($groupId, $siteId, $search);
-
-        return $this->renderTemplate('tidytags/group', [
-            'group' => $group,
-            'sites' => $plugin->tags->getAllSites(),
-            'selectedSiteId' => $siteId,
-            'rows' => $rows,
-            'search' => $search,
-            'selectedSubnavItem' => 'dashboard',
-        ]);
     }
 
     /**

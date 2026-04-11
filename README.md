@@ -1,8 +1,10 @@
 # Tidy Tags
 
-A tag manager for Craft CMS 5 with multi-site support and duplicate detection.
+A tag manager for Craft CMS 5 with multi-site support, duplicate detection, and optional read-only support for entry-backed tags.
 
 Tidy Tags gives you a control panel section for auditing, cleaning, and merging tags across every site in your Craft install. It also watches tag fields while editors are working and warns them when a new tag looks like an existing one, so your taxonomy stays tidy.
+
+If you've [entrified](https://craftcms.com/blog/entrification) your tags with `php craft entrify/tags`, you can point Tidy Tags at the resulting channel sections and they'll show up on the dashboard and in the duplicate scanner alongside native tag groups. Entry-backed sources are intentionally read-only — see [Tag-like entry sections](#tag-like-entry-sections) below.
 
 ## Requirements
 
@@ -39,13 +41,13 @@ Until this plugin is published to the Craft Plugin Store, install it as a path r
 
 ### Dashboard
 
-Navigate to **Tidy Tags** in the CP sidebar. The dashboard lists every tag group in the install with:
+Navigate to **Tidy Tags** in the CP sidebar. The dashboard lists every source in the install with:
 
-- The group name and handle
-- Total tag count (unique elements across all sites)
-- Per-site tag counts
+- The source name, handle, and a **Tags** or **Entries** badge
+- Total count (unique elements across all sites)
+- Per-site counts
 
-Click **Manage** on a row to open that group's tag list.
+Click **Manage** on a row to open that source's list. "Sources" includes every native tag group plus any channel sections you've designated as tag-like (see below).
 
 ### Group view
 
@@ -60,7 +62,7 @@ All actions are multi-site aware. Choosing "All sites" in the filter shows every
 
 ### Duplicate scanner
 
-The **Duplicates** tab scans every tag group and clusters near-duplicates using a Levenshtein threshold (default 2, configurable 1–6). For each cluster you can pick which tag to keep and which to merge in, then confirm with one click.
+The **Duplicates** tab scans every source and clusters near-duplicates using a Levenshtein threshold (default 2, configurable 1–6). For each cluster from a tag group you can pick which tag to keep and which to merge in, then confirm with one click. Clusters from entry-backed sources are shown but not merge-able — review them in their section.
 
 Useful for cleaning up mistakes like:
 
@@ -75,6 +77,41 @@ Tidy Tags ships a small JS asset bundle that loads on every control panel page. 
 > Did you mean: **JavaScript**, **Javascripts**? (similar tags already exist)
 
 The warning is informational — it never blocks the editor from creating a new tag — but it nudges people toward reusing existing taxonomy.
+
+### Tag-like entry sections
+
+Craft's `php craft entrify/tags` command converts a tag group into a channel section, turning each tag into an entry. Once entrified, your "tags" are regular entries with URLs, bodies, drafts, authors, and revisions.
+
+Tidy Tags can surface these sections alongside native tag groups so the dashboard and duplicate scanner aren't suddenly empty after entrification. To opt a section in:
+
+1. Go to **Settings → Plugins → Tidy Tags**.
+2. Check each channel section you want surfaced under **Tag-like sections**.
+3. Save. The section will now appear on the Tidy Tags dashboard with an **Entries** badge.
+
+**Entry-backed sources are read-only.** Rename, merge, and delete are tag-only in Tidy Tags because entries carry URLs, bodies, drafts, and authorship that can't be safely mutated through a tag-sized interface — and Craft already has better UIs for editing entries. You still get:
+
+- Dashboard counts (total + per-site)
+- Per-site title browsing and search
+- Duplicate-cluster detection across every site
+
+The "did you mean?" editor warning is also intentionally tag-only — it hooks Craft's Tags field and does not fire on entries fields.
+
+### Configuration file
+
+The plugin settings screen is the primary place to manage tag-like sections. Every field on the settings model can also be driven from `config/tidytags.php`, which is overlaid on top of the saved settings at request time — handy for per-environment configuration:
+
+```php
+<?php
+// config/tidytags.php
+return [
+    'tagLikeSectionUids' => [
+        'af2a1ee1-7a4b-4d9a-bc0b-6b3b5b9f3c8b', // articleTags
+        'c4e1be83-7c18-47e3-b6aa-2b5d1b9a94d2', // productCategories
+    ],
+];
+```
+
+Use section UIDs (not IDs or handles) so the config is stable across environments. You can find a section's UID in the URL of its settings page, or via `php craft entries/sections`.
 
 ## Permissions
 
@@ -102,7 +139,7 @@ to refresh Craft's element and template caches.
 
 ## Configuration
 
-Tidy Tags has no config file at this time. The duplicate similarity threshold is a query parameter on the Duplicates page (`?threshold=N`), and the "did you mean" endpoint accepts `title`, `groupId`, and `siteId` parameters if you want to call it from your own code.
+Plugin-wide settings (primarily the list of tag-like entry sections) live on the **Settings → Plugins → Tidy Tags** screen and can be overlaid from `config/tidytags.php`; see [Configuration file](#configuration-file) above. The duplicate similarity threshold is a query parameter on the Duplicates page (`?threshold=N`), and the "did you mean" endpoint accepts `title`, `groupId`, and `siteId` parameters if you want to call it from your own code.
 
 ## Action endpoints
 

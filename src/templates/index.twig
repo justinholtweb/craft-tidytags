@@ -7,13 +7,18 @@
 {% block content %}
 <div class="tidytags-dashboard">
     {% if rows|length == 0 %}
-        <p>No tag groups found. Create one in <a href="{{ cpUrl('settings/tags') }}">Settings → Tags</a>.</p>
+        <p>
+            No sources found. Create a tag group in <a href="{{ cpUrl('settings/tags') }}">Settings → Tags</a>,
+            or designate a channel section as tag-like in
+            <a href="{{ cpUrl('settings/plugins/tidytags') }}">Settings → Tidy Tags</a>
+            (useful if you've run <code>php craft entrify/tags</code>).
+        </p>
     {% else %}
         <table class="data fullwidth">
             <thead>
                 <tr>
-                    <th>Group</th>
-                    <th>Total Tags</th>
+                    <th>Source</th>
+                    <th>Total</th>
                     {% for site in sites %}
                         <th>{{ site.name }}</th>
                     {% endfor %}
@@ -22,10 +27,20 @@
             </thead>
             <tbody>
                 {% for row in rows %}
+                    {% set source = row.source %}
                     <tr>
                         <td>
-                            <strong>{{ row.group.name }}</strong><br>
-                            <code style="font-size:11px;color:#596673;">{{ row.group.handle }}</code>
+                            <strong>{{ source.name }}</strong>
+                            <span class="tidytags-type-badge tidytags-type-{{ source.type }}"
+                                  style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:10px;font-size:10px;text-transform:uppercase;letter-spacing:.04em;background:{{ source.type == 'tag' ? '#e3efff' : '#fff1e3' }};color:{{ source.type == 'tag' ? '#0b5394' : '#8a4b00' }};">
+                                {{ source.typeLabel }}
+                            </span>
+                            {% if not source.isWritable %}
+                                <span title="Read-only: rename, merge, and delete are disabled for entry-backed sources."
+                                      style="margin-left:4px;font-size:11px;color:#8a8a8a;">read-only</span>
+                            {% endif %}
+                            <br>
+                            <code style="font-size:11px;color:#596673;">{{ source.handle }}</code>
                         </td>
                         <td>{{ row.total }}</td>
                         {% for site in sites %}
@@ -34,7 +49,7 @@
                             </td>
                         {% endfor %}
                         <td>
-                            <a class="btn small" href="{{ cpUrl('tidytags/group/' ~ row.group.id) }}">Manage</a>
+                            <a class="btn small" href="{{ cpUrl(source.cpPath) }}">Manage</a>
                         </td>
                     </tr>
                 {% endfor %}

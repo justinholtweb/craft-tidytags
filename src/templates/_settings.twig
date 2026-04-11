@@ -1,0 +1,37 @@
+{% import "_includes/forms" as forms %}
+
+{% set channelOptions = [] %}
+{% for section in sections %}
+    {% if section.type == 'channel' %}
+        {% set channelOptions = channelOptions|merge([{
+            label: section.name ~ ' (' ~ section.handle ~ ')',
+            value: section.uid,
+        }]) %}
+    {% endif %}
+{% endfor %}
+
+<p>
+    Designate channel sections that should be treated as tag-like sources — typically the
+    output of <code>php craft entrify/tags</code>. Entry-backed sources are read-only:
+    Tidy Tags will show counts, per-site titles, and duplicate clusters, but rename, merge,
+    and delete remain tag-only to avoid clobbering entry URLs, bodies, drafts, or revisions.
+</p>
+
+{% if channelOptions|length == 0 %}
+    <p style="color:#8a8a8a;">No channel sections exist yet.</p>
+{% else %}
+    {{ forms.checkboxSelectField({
+        label: 'Tag-like sections'|t('tidytags'),
+        instructions: 'Pick the channel sections you want Tidy Tags to surface alongside native tag groups.'|t('tidytags'),
+        id: 'tagLikeSectionUids',
+        name: 'tagLikeSectionUids',
+        options: channelOptions,
+        values: settings.tagLikeSectionUids,
+        showAllOption: false,
+    }) }}
+{% endif %}
+
+<p style="font-size:11px;color:#8a8a8a;margin-top:12px;">
+    These values can also be driven from <code>config/tidytags.php</code>, which overlays saved
+    settings at request time — useful for per-environment configuration.
+</p>

@@ -5,10 +5,11 @@ namespace justinholtweb\tidytags\services;
 use Craft;
 use craft\base\Component;
 use craft\elements\Tag;
-use craft\models\TagGroup;
+use justinholtweb\tidytags\models\Source;
+use justinholtweb\tidytags\Plugin;
 
 /**
- * Near-duplicate tag detection for the Tidy Tags plugin.
+ * Near-duplicate detection across every Tidy Tags source.
  */
 class DuplicateDetector extends Component
 {
@@ -18,34 +19,31 @@ class DuplicateDetector extends Component
     public int $defaultThreshold = 2;
 
     /**
-     * Finds clusters of near-duplicate tags within a group.
+     * Finds clusters of near-duplicate elements within a single source.
      *
      * @return array<int, array<int, array{id: int, title: string, siteId: int}>>
      */
-    public function findDuplicates(int $groupId, ?int $siteId = null, ?int $threshold = null): array
+    public function findDuplicates(Source $source, ?int $siteId = null, ?int $threshold = null): array
     {
         $threshold = $threshold ?? $this->defaultThreshold;
 
-        $query = Tag::find()
-            ->groupId($groupId)
-            ->status(null);
+        $query = Plugin::$plugin->sources->baseQuery($source);
 
         if ($siteId !== null) {
             $query->siteId($siteId);
         } else {
-            $primary = Craft::$app->getSites()->getPrimarySite();
-            $query->siteId($primary->id);
+            $query->siteId(Craft::$app->getSites()->getPrimarySite()->id);
         }
 
-        $tags = $query->all();
+        $elements = $query->all();
 
         $items = [];
-        foreach ($tags as $tag) {
+        foreach ($elements as $element) {
             $items[] = [
-                'id' => (int)$tag->id,
-                'title' => (string)$tag->title,
-                'siteId' => (int)$tag->siteId,
-                'normalized' => $this->_normalize((string)$tag->title),
+                'id' => (int)$element->id,
+                'title' => (string)$element->title,
+                'siteId' => (int)$element->siteId,
+                'normalized' => $this->_normalize((string)$element->title),
             ];
         }
 
@@ -83,24 +81,27 @@ class DuplicateDetector extends Component
     }
 
     /**
-     * Finds all near-duplicate clusters across every tag group.
+     * Finds all near-duplicate clusters across every configured source.
      *
-     * @return array<int, array{group: TagGroup, clusters: array}>
+     * @return array<int, array{source: Source, clusters: array}>
      */
     public function findAllDuplicates(?int $siteId = null, ?int $threshold = null): array
     {
         $out = [];
-        foreach (Craft::$app->getTags()->getAllTagGroups() as $group) {
-            $clusters = $this->findDuplicates($group->id, $siteId, $threshold);
+        foreach (Plugin::$plugin->sources->getAllSources() as $source) {
+            $clusters = $this->findDuplicates($source, $siteId, $threshold);
             if (!empty($clusters)) {
-                $out[] = ['group' => $group, 'clusters' => $clusters];
+                $out[] = ['source' => $source, 'clusters' => $clusters];
             }
         }
         return $out;
     }
 
     /**
-     * Finds tags similar to a given title. Used by the "did you mean" AJAX endpoint.
+     * Finds tags similar to a given title. Used by the "did you mean" AJAX
+     * endpoint — deliberately tag-only: the editor-side warning JS targets
+     * Craft Tags fields only, and we don't want to surface entry suggestions
+     * in UI where they'd be confusing or destructive to pick.
      *
      * @return array<int, array{id: int, title: string, distance: int}>
      */
@@ -149,9 +150,6 @@ class DuplicateDetector extends Component
         return array_slice($matches, 0, $limit);
     }
 
-    /**
-     * Normalizes a tag title for similarity comparison.
-     */
     private function _normalize(string $s): string
     {
         $s = mb_strtolower(trim($s));
@@ -159,9 +157,6 @@ class DuplicateDetector extends Component
         return $s;
     }
 
-    /**
-     * Returns whether two normalized strings are within the given Levenshtein distance.
-     */
     private function _isSimilar(string $a, string $b, int $threshold): bool
     {
         if ($a === $b) {

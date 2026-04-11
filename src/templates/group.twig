@@ -1,21 +1,37 @@
 {% extends "_layouts/cp" %}
 {% import "_includes/forms" as forms %}
 
-{% set title = group.name %}
+{% set title = source.name %}
 {% set selectedSubnavItem = "dashboard" %}
 
 {% set crumbs = [
     { label: "Tidy Tags"|t('tidytags'), url: cpUrl('tidytags') }
 ] %}
 
+{% set basePath = source.cpPath %}
+{% set placeholder = source.type == 'tag' ? 'Search tags...' : 'Search entries...' %}
+
 {% block content %}
 <div class="tidytags-group">
-    <form method="get" action="{{ cpUrl('tidytags/group/' ~ group.id) }}" style="margin-bottom:16px;">
+    <div style="margin-bottom:12px;">
+        <span class="tidytags-type-badge tidytags-type-{{ source.type }}"
+              style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;text-transform:uppercase;letter-spacing:.04em;background:{{ source.type == 'tag' ? '#e3efff' : '#fff1e3' }};color:{{ source.type == 'tag' ? '#0b5394' : '#8a4b00' }};">
+            {{ source.typeLabel }}
+        </span>
+        {% if not source.isWritable %}
+            <span style="margin-left:6px;font-size:12px;color:#596673;">
+                Read-only — rename, merge, and delete are disabled for entry-backed sources.
+                Manage these entries in their section.
+            </span>
+        {% endif %}
+    </div>
+
+    <form method="get" action="{{ cpUrl(basePath) }}" style="margin-bottom:16px;">
         <div class="flex">
             {{ forms.text({
                 name: 'search',
                 value: search,
-                placeholder: 'Search tags...',
+                placeholder: placeholder,
                 class: 'fullwidth',
             }) }}
             <div>
@@ -33,24 +49,28 @@
 
     <form id="tidytags-bulk-form" method="post" action="">
         {{ csrfInput() }}
-        {{ redirectInput('tidytags/group/' ~ group.id ~ (selectedSiteId ? '/site/' ~ selectedSiteId : '')) }}
+        {{ redirectInput(basePath ~ (selectedSiteId ? '/site/' ~ selectedSiteId : '')) }}
 
-        <div class="tidytags-actions">
-            <button type="button" class="btn" data-action="rename" disabled>Rename…</button>
-            <button type="button" class="btn" data-action="merge" disabled>Merge…</button>
-            <button type="button" class="btn delete" data-action="delete" disabled>Delete</button>
-            <span class="tidytags-selected-count" style="opacity:.7;font-size:12px;">0 selected</span>
-        </div>
+        {% if source.isWritable %}
+            <div class="tidytags-actions">
+                <button type="button" class="btn" data-action="rename" disabled>Rename…</button>
+                <button type="button" class="btn" data-action="merge" disabled>Merge…</button>
+                <button type="button" class="btn delete" data-action="delete" disabled>Delete</button>
+                <span class="tidytags-selected-count" style="opacity:.7;font-size:12px;">0 selected</span>
+            </div>
+        {% endif %}
 
         {% if rows|length == 0 %}
-            <p>No tags found.</p>
+            <p>Nothing found.</p>
         {% else %}
             <table class="data fullwidth collapsible">
                 <thead>
                     <tr>
-                        <th class="tidytags-checkbox">
-                            <input type="checkbox" id="tidytags-select-all">
-                        </th>
+                        {% if source.isWritable %}
+                            <th class="tidytags-checkbox">
+                                <input type="checkbox" id="tidytags-select-all">
+                            </th>
+                        {% endif %}
                         <th>Title</th>
                         {% if selectedSiteId is null %}
                             {% for site in sites %}
@@ -62,13 +82,15 @@
                 </thead>
                 <tbody>
                     {% for row in rows %}
-                        {% set tag = row.tag %}
-                        <tr data-tag-id="{{ tag.id }}">
-                            <td class="tidytags-checkbox">
-                                <input type="checkbox" name="tagIds[]" value="{{ tag.id }}" class="tidytags-row-check">
-                            </td>
+                        {% set element = row.element %}
+                        <tr data-element-id="{{ element.id }}">
+                            {% if source.isWritable %}
+                                <td class="tidytags-checkbox">
+                                    <input type="checkbox" name="tagIds[]" value="{{ element.id }}" class="tidytags-row-check">
+                                </td>
+                            {% endif %}
                             <td class="tidytags-title-cell">
-                                <span class="tidytags-title">{{ tag.title }}</span>
+                                <span class="tidytags-title">{{ element.title }}</span>
                             </td>
                             {% if selectedSiteId is null %}
                                 {% for site in sites %}
@@ -83,7 +105,7 @@
                                 {% endfor %}
                             {% endif %}
                             <td>
-                                {% set editUrl = tag.cpEditUrl ?? null %}
+                                {% set editUrl = element.cpEditUrl ?? null %}
                                 {% if editUrl %}
                                     <a class="btn small" href="{{ editUrl }}" target="_blank" rel="noopener">Edit</a>
                                 {% endif %}
@@ -96,6 +118,7 @@
     </form>
 </div>
 
+{% if source.isWritable %}
 {% js %}
 (function(){
     var form = document.getElementById('tidytags-bulk-form');
@@ -202,4 +225,5 @@
     update();
 })();
 {% endjs %}
+{% endif %}
 {% endblock %}
