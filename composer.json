@@ -3,6 +3,17 @@
     "description": "Tag manager for Craft CMS 5 with multi-site support and duplicate detection.",
     "type": "craft-plugin",
     "license": "proprietary",
+    "version": "5.0.1",
+    "keywords": [
+        "craftcms",
+        "tags",
+        "tag-manager"
+    ],
+    "support": {
+        "issues": "https://github.com/justinholtweb/craft-tidytags/issues"
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
     "require": {
         "php": ">=8.2",
         "craftcms/cms": "^5.0.0"
