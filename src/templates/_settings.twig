@@ -10,11 +10,15 @@
     {% endif %}
 {% endfor %}
 
+<h2>{{ "Tag-like sections"|t('tidytags') }}</h2>
+
 <p>
     Designate channel sections that should be treated as tag-like sources — typically the
-    output of <code>php craft entrify/tags</code>. Entry-backed sources are read-only:
-    Tidy Tags will show counts, per-site titles, and duplicate clusters, but rename, merge,
-    and delete remain tag-only to avoid clobbering entry URLs, bodies, drafts, or revisions.
+    output of <code>php craft entrify/tags</code>. Entry-backed sources are read-only by
+    default: Tidy Tags will show counts, per-site titles, and duplicate clusters, but rename,
+    merge, and delete remain tag-only to avoid clobbering entry URLs, bodies, drafts, or
+    revisions. Cross-source <em>swap</em> (re-pointing relations from one element to another
+    without deleting the source) is supported and works across types.
 </p>
 
 {% if channelOptions|length == 0 %}
@@ -31,7 +35,89 @@
     }) }}
 {% endif %}
 
+<hr>
+
+<h2>{{ "Per-source field configuration"|t('tidytags') }}</h2>
+
+<p>
+    For each source you can pick:
+</p>
+<ul style="margin-top:-6px;">
+    <li><strong>Differentiator field</strong> — a field that distinguishes same-named items
+        (e.g. a <code>sport</code> field that tells <em>England (Football)</em> apart from
+        <em>England (Cricket)</em>). When set, two items with the same title but different
+        differentiator values are <em>not</em> flagged as duplicates.</li>
+    <li><strong>Display fields</strong> — fields whose values appear next to each item in
+        duplicate clusters and the editor "did you mean" warning, so reviewers can tell
+        similar items apart at a glance.</li>
+</ul>
+
+{% if sources|length == 0 %}
+    <p style="color:#8a8a8a;">No sources to configure yet.</p>
+{% else %}
+    <table class="data fullwidth" style="margin-top:8px;">
+        <thead>
+            <tr>
+                <th style="width:30%;">Source</th>
+                <th style="width:30%;">Differentiator field</th>
+                <th>Display fields</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for source in sources %}
+                {% set fields = fieldsBySourceUid[source.uid] ?? [] %}
+                {% set differentiator = settings.getDifferentiatorHandle(source.uid) %}
+                {% set display = settings.getDisplayHandles(source.uid) %}
+                <tr>
+                    <td>
+                        <strong>{{ source.name }}</strong>
+                        <span class="tidytags-type-badge tidytags-type-{{ source.type }}"
+                              style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:10px;font-size:10px;text-transform:uppercase;letter-spacing:.04em;background:{{ source.type == 'tag' ? '#e3efff' : '#fff1e3' }};color:{{ source.type == 'tag' ? '#0b5394' : '#8a4b00' }};">
+                            {{ source.typeLabel }}
+                        </span>
+                        <br>
+                        <code style="font-size:11px;color:#596673;">{{ source.handle }}</code>
+                    </td>
+                    <td>
+                        {% if fields|length == 0 %}
+                            <span style="color:#8a8a8a;font-size:12px;">No custom fields available.</span>
+                        {% else %}
+                            <select name="sourceFieldConfig[{{ source.uid }}][differentiator]">
+                                <option value="">— None —</option>
+                                {% for field in fields %}
+                                    <option value="{{ field.handle }}" {{ differentiator == field.handle ? 'selected' }}>
+                                        {{ field.name }} ({{ field.handle }})
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if fields|length == 0 %}
+                            <span style="color:#8a8a8a;font-size:12px;">—</span>
+                        {% else %}
+                            <div class="tidytags-display-fields" style="display:flex;flex-wrap:wrap;gap:6px 12px;">
+                                {% for field in fields %}
+                                    <label style="font-size:12px;display:inline-flex;align-items:center;gap:4px;">
+                                        <input type="checkbox"
+                                               name="sourceFieldConfig[{{ source.uid }}][display][]"
+                                               value="{{ field.handle }}"
+                                               {{ field.handle in display ? 'checked' }}>
+                                        {{ field.name }}
+                                    </label>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% endif %}
+
 <p style="font-size:11px;color:#8a8a8a;margin-top:12px;">
     These values can also be driven from <code>config/tidytags.php</code>, which overlays saved
-    settings at request time — useful for per-environment configuration.
+    settings at request time — useful for per-environment configuration. Source field config
+    keys by source UID, e.g.
+    <code>'sourceFieldConfig' =&gt; ['af2a1ee1-...' =&gt; ['differentiator' =&gt; 'sport', 'display' =&gt; ['sport']]]</code>.
 </p>

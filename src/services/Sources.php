@@ -4,6 +4,8 @@ namespace justinholtweb\tidytags\services;
 
 use Craft;
 use craft\base\Component;
+use craft\base\FieldInterface;
+use craft\db\Query;
 use craft\elements\db\ElementQueryInterface;
 use craft\elements\Entry;
 use craft\elements\Tag;
@@ -190,5 +192,175 @@ class Sources extends Component
         return $source->type === Source::TYPE_TAG
             ? Tag::find()->groupId($source->id)->status(null)
             : Entry::find()->sectionId($source->id)->status(null);
+    }
+
+    /**
+     * Returns custom fields available on a source — the union of every entry
+     * type's field layout for an entry section, or the tag group's single
+     * field layout. Used to populate the per-source field-config picker on
+     * the settings screen.
+     *
+     * @return array<int, FieldInterface>
+     */
+    public function getAvailableFields(Source $source): array
+    {
+        $fields = [];
+
+        if ($source->type === Source::TYPE_TAG) {
+            $group = Craft::$app->getTags()->getTagGroupById($source->id);
+            if ($group !== null) {
+                foreach ($group->getFieldLayout()?->getCustomFields() ?? [] as $field) {
+                    $fields[$field->handle] = $field;
+                }
+            }
+        } else {
+            $section = Craft::$app->getEntries()->getSectionById($source->id);
+            if ($section !== null) {
+                foreach ($section->getEntryTypes() as $entryType) {
+                    foreach ($entryType->getFieldLayout()?->getCustomFields() ?? [] as $field) {
+                        $fields[$field->handle] = $field;
+                    }
+                }
+            }
+        }
+
+        return array_values($fields);
+    }
+
+    /**
+     * Returns the configured differentiator field handle for a source, or null.
+     */
+    public function getDifferentiatorHandle(Source $source): ?string
+    {
+        return Plugin::$plugin->getSettings()->getDifferentiatorHandle($source->uid);
+    }
+
+    /**
+     * Returns the configured display field handles for a source.
+     *
+     * @return string[]
+     */
+    public function getDisplayHandles(Source $source): array
+    {
+        return Plugin::$plugin->getSettings()->getDisplayHandles($source->uid);
+    }
+
+    /**
+     * Returns every relation that targets the given element ID — i.e. every
+     * source element (entry, asset, etc.) that holds a reference to this
+     * tag/entry through a relational field.
+     *
+     * Used by the duplicates view to let editors expand a cluster item and see
+     * exactly what would move during a swap or merge.
+     *
+     * @return array<int, array{
+     *     elementId: int,
+     *     title: string,
+     *     elementType: string,
+     *     fieldHandle: string,
+     *     fieldName: string,
+     *     siteId: ?int,
+     *     siteName: ?string,
+     *     cpEditUrl: ?string,
+     * }>
+     */
+    public function getUsages(int $elementId, int $limit = 200): array
+    {
+        $rows = (new Query())
+            ->select(['fieldId', 'sourceId', 'sourceSiteId'])
+            ->from(['{{%relations}}'])
+            ->where(['targetId' => $elementId])
+            ->limit($limit)
+            ->all();
+
+        if (empty($rows)) {
+            return [];
+        }
+
+        $fieldsService = Craft::$app->getFields();
+        $sitesService = Craft::$app->getSites();
+        $elementsService = Craft::$app->getElements();
+
+        $usages = [];
+        foreach ($rows as $row) {
+            $field = $fieldsService->getFieldById((int)$row['fieldId']);
+            $siteId = $row['sourceSiteId'] !== null ? (int)$row['sourceSiteId'] : null;
+            $site = $siteId !== null ? $sitesService->getSiteById($siteId) : null;
+
+            $element = $elementsService->getElementById(
+                (int)$row['sourceId'],
+                null,
+                $siteId ?? $sitesService->getPrimarySite()->id,
+            );
+
+            if ($element === null) {
+                continue;
+            }
+
+            $usages[] = [
+                'elementId' => (int)$element->id,
+                'title' => (string)($element->title ?? ('#' . $element->id)),
+                'elementType' => $this->_shortClassName($element::class),
+                'fieldHandle' => $field?->handle ?? '?',
+                'fieldName' => $field?->name ?? '?',
+                'siteId' => $siteId,
+                'siteName' => $site?->name,
+                'cpEditUrl' => $element->getCpEditUrl(),
+            ];
+        }
+
+        return $usages;
+    }
+
+    private function _shortClassName(string $fqcn): string
+    {
+        $parts = explode('\\', $fqcn);
+        return end($parts) ?: $fqcn;
+    }
+
+    /**
+     * Reads a stringy value out of a custom field on an element. Returns null
+     * if the field isn't present, the value is empty, or it can't be coerced
+     * to a sensible scalar (relations and matrix-like data are stringified
+     * into a comma-joined preview).
+     */
+    public function readFieldValue(\craft\base\ElementInterface $element, string $handle): ?string
+    {
+        try {
+            $value = $element->getFieldValue($handle);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if ($value === null || $value === '' || $value === []) {
+            return null;
+        }
+
+        if (is_scalar($value)) {
+            return (string)$value;
+        }
+
+        if ($value instanceof \craft\elements\db\ElementQueryInterface) {
+            $titles = [];
+            foreach ($value->all() as $related) {
+                $title = (string)($related->title ?? '');
+                if ($title !== '') {
+                    $titles[] = $title;
+                }
+            }
+            return $titles === [] ? null : implode(', ', $titles);
+        }
+
+        if (is_object($value) && method_exists($value, '__toString')) {
+            $s = trim((string)$value);
+            return $s === '' ? null : $s;
+        }
+
+        if (is_array($value)) {
+            $flat = array_filter(array_map(fn($v) => is_scalar($v) ? (string)$v : null, $value));
+            return $flat === [] ? null : implode(', ', $flat);
+        }
+
+        return null;
     }
 }

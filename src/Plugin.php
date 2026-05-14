@@ -111,9 +111,17 @@ class Plugin extends BasePlugin
      */
     protected function settingsHtml(): ?string
     {
+        $sources = $this->sources->getAllSources();
+        $fieldsBySourceUid = [];
+        foreach ($sources as $source) {
+            $fieldsBySourceUid[$source->uid] = $this->sources->getAvailableFields($source);
+        }
+
         return Craft::$app->getView()->renderTemplate('tidytags/_settings', [
             'settings' => $this->getSettings(),
             'sections' => Craft::$app->getEntries()->getAllSections(),
+            'sources' => $sources,
+            'fieldsBySourceUid' => $fieldsBySourceUid,
         ]);
     }
 

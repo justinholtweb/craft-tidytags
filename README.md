@@ -1,10 +1,10 @@
 # Tidy Tags
 
-A tag manager for Craft CMS 5 with multi-site support, duplicate detection, and optional read-only support for entry-backed tags.
+A tag manager for Craft CMS 5 with multi-site support, cross-source duplicate detection, and optional read-only support for entry-backed tags.
 
-Tidy Tags gives you a control panel section for auditing, cleaning, and merging tags across every site in your Craft install. It also watches tag fields while editors are working and warns them when a new tag looks like an existing one, so your taxonomy stays tidy.
+Tidy Tags gives you a control panel section for auditing, cleaning, and merging tags across every site in your Craft install. It compares tags against each other *and* against tag-like entry sections (Teams, Competitions, Topics — anything you've entrified or that should stay aligned), shows usages inline, and watches tag fields while editors are working so they're nudged toward existing taxonomy before they create yet another `England` tag.
 
-If you've [entrified](https://craftcms.com/blog/entrification) your tags with `php craft entrify/tags`, you can point Tidy Tags at the resulting channel sections and they'll show up on the dashboard and in the duplicate scanner alongside native tag groups. Entry-backed sources are intentionally read-only — see [Tag-like entry sections](#tag-like-entry-sections) below.
+If you've [entrified](https://craftcms.com/blog/entrification) your tags with `php craft entrify/tags`, you can point Tidy Tags at the resulting channel sections and they'll show up on the dashboard, in the duplicate scanner, and in the editor "did you mean?" warning alongside native tag groups. Entry-backed sources stay read-only for destructive actions but support relation swap — see [Tag-like entry sections](#tag-like-entry-sections) below.
 
 ## Requirements
 
@@ -47,7 +47,7 @@ Navigate to **Tidy Tags** in the CP sidebar. The dashboard lists every source in
 - Total count (unique elements across all sites)
 - Per-site counts
 
-Click **Manage** on a row to open that source's list. "Sources" includes every native tag group plus any channel sections you've designated as tag-like (see below).
+Click **Manage** on a row to open that source's list. "Sources" includes every native tag group plus any channel sections you've designated as tag-like.
 
 ### Group view
 
@@ -62,56 +62,82 @@ All actions are multi-site aware. Choosing "All sites" in the filter shows every
 
 ### Duplicate scanner
 
-The **Duplicates** tab scans every source and clusters near-duplicates using a Levenshtein threshold (default 2, configurable 1–6). For each cluster from a tag group you can pick which tag to keep and which to merge in, then confirm with one click. Clusters from entry-backed sources are shown but not merge-able — review them in their section.
+The **Duplicates** tab has two scopes:
 
-Useful for cleaning up mistakes like:
+- **Within source** — clusters near-duplicates inside a single tag group or section. For tag-group clusters you can pick a target and merge in one click. Entry-backed clusters offer **Swap relations** instead, which re-points relations from the duplicate entries onto the chosen target without deleting anything.
+- **Across sources** — pools every source together and surfaces clusters that span more than one source. Useful when an editor has created a Tag for something already maintained as a Team or Competition. Always uses **Swap relations**, never auto-deletes.
 
-- `marketing` / `Marketing` / `marketting`
-- `javascript` / `JavaScript` / `java script`
-- `New York` / `new york` / `new-york`
+Each cluster item:
+
+- Links to its tag/entry edit screen
+- Shows the source it came from with a **Tag** or **Entry** badge
+- Shows configured display field values (e.g. `sport: Football`) so you can tell same-named items apart
+- Has a **Show usages** button that lists every entry holding a relation to it, with edit links
+
+The Levenshtein threshold is configurable per-scan (default 2, range 1–6).
+
+#### Differentiator and display fields
+
+Under **Settings → Plugins → Tidy Tags** you can pick, per source:
+
+- **Differentiator field** — when set, two items with the same normalized title but different differentiator values are *not* clustered as duplicates. This is how `England (Football)` and `England (Cricket)` stay distinct from each other while a stray `England` tag still gets flagged against both.
+- **Display fields** — values appear next to each item in clusters and the editor warning, so reviewers can disambiguate at a glance.
+
+When one item has a differentiator value and the other doesn't (e.g. a Tag with no field vs. a Team with `sport: Football`), the cluster is still shown — Tidy Tags treats "missing" as "unknown, surface for review" rather than "definitely different".
 
 ### "Did you mean?" warnings for editors
 
-Tidy Tags ships a small JS asset bundle that loads on every control panel page. When an editor starts typing a new tag into a tag field, the plugin debounces the input, asks the `tidytags/tags/check-duplicate` action for similar tags in the same group, and shows a non-blocking amber notice below the field:
+Tidy Tags ships a small JS asset bundle that loads on every control panel page. When an editor starts typing a new tag into a tag field, the plugin debounces the input, asks the `tidytags/tags/check-duplicate` action for similar items, and shows a non-blocking amber notice below the field listing matches across:
 
-> Did you mean: **JavaScript**, **Javascripts**? (similar tags already exist)
+- The tag group the field is bound to
+- Every configured tag-like entry section
 
-The warning is informational — it never blocks the editor from creating a new tag — but it nudges people toward reusing existing taxonomy.
+Each match shows the differentiator value (if configured) and links directly to the existing item, so an editor about to create `England` in a tag field is told that `England (Football)` already exists as a Team and given a one-click way to open it. The warning is informational — it never blocks the editor — but it nudges people toward reusing existing taxonomy instead of duplicating.
 
 ### Tag-like entry sections
 
 Craft's `php craft entrify/tags` command converts a tag group into a channel section, turning each tag into an entry. Once entrified, your "tags" are regular entries with URLs, bodies, drafts, authors, and revisions.
 
-Tidy Tags can surface these sections alongside native tag groups so the dashboard and duplicate scanner aren't suddenly empty after entrification. To opt a section in:
+Tidy Tags can surface these sections alongside native tag groups so the dashboard and scanners aren't suddenly empty after entrification. To opt a section in:
 
 1. Go to **Settings → Plugins → Tidy Tags**.
 2. Check each channel section you want surfaced under **Tag-like sections**.
-3. Save. The section will now appear on the Tidy Tags dashboard with an **Entries** badge.
+3. Save.
 
-**Entry-backed sources are read-only.** Rename, merge, and delete are tag-only in Tidy Tags because entries carry URLs, bodies, drafts, and authorship that can't be safely mutated through a tag-sized interface — and Craft already has better UIs for editing entries. You still get:
+**Entry-backed sources are read-only for destructive actions.** Rename, merge, and delete are tag-only because entries carry URLs, bodies, drafts, and authorship that can't be safely mutated through a tag-sized interface — and Craft already has better UIs for editing entries. You still get:
 
 - Dashboard counts (total + per-site)
 - Per-site title browsing and search
-- Duplicate-cluster detection across every site
-
-The "did you mean?" editor warning is also intentionally tag-only — it hooks Craft's Tags field and does not fire on entries fields.
+- Within-source and cross-source duplicate clusters
+- **Swap relations** — the safe primitive that re-points relations from one entry to another without touching the entries themselves
+- Inclusion in the editor "did you mean?" warning when the editor is in a tag field
 
 ### Configuration file
 
-The plugin settings screen is the primary place to manage tag-like sections. Every field on the settings model can also be driven from `config/tidytags.php`, which is overlaid on top of the saved settings at request time — handy for per-environment configuration:
+The plugin settings screen is the primary place to manage tag-like sections and per-source field config. Every field on the settings model can also be driven from `config/tidytags.php`, which is overlaid on top of the saved settings at request time — handy for per-environment configuration:
 
 ```php
 <?php
 // config/tidytags.php
 return [
     'tagLikeSectionUids' => [
-        'af2a1ee1-7a4b-4d9a-bc0b-6b3b5b9f3c8b', // articleTags
-        'c4e1be83-7c18-47e3-b6aa-2b5d1b9a94d2', // productCategories
+        'af2a1ee1-7a4b-4d9a-bc0b-6b3b5b9f3c8b', // teams
+        'c4e1be83-7c18-47e3-b6aa-2b5d1b9a94d2', // competitions
+    ],
+    'sourceFieldConfig' => [
+        'af2a1ee1-7a4b-4d9a-bc0b-6b3b5b9f3c8b' => [
+            'differentiator' => 'sport',
+            'display'        => ['sport', 'country'],
+        ],
+        'c4e1be83-7c18-47e3-b6aa-2b5d1b9a94d2' => [
+            'differentiator' => 'sport',
+            'display'        => ['sport'],
+        ],
     ],
 ];
 ```
 
-Use section UIDs (not IDs or handles) so the config is stable across environments. You can find a section's UID in the URL of its settings page, or via `php craft entries/sections`.
+Use section UIDs (not IDs or handles) so the config is stable across environments. You can find a section's UID in the URL of its settings page, or via `php craft entries/sections`. Tag-group UIDs come from `php craft tags/groups` or the URL of the tag group's settings page.
 
 ## Permissions
 
@@ -129,7 +155,16 @@ When you merge tags, Tidy Tags:
 
 This preserves every entry's relationship to the merged tag while cleaning up redundant rows.
 
-After large merges you may want to run:
+## How swap works
+
+**Swap** is the element-type-agnostic version of merge. It runs the same relation re-pointing logic (steps 1–3 above) inside a transaction but **never deletes the source elements**. Use it when:
+
+- You're consolidating across sources (Tag → Team, Team → Competition, etc.)
+- You're cleaning up entry-backed duplicates and want to verify by hand before deleting
+
+After a swap, the source entries are orphaned (no relations point at them) but still present. Delete them through Craft's normal entry UI once you're satisfied.
+
+After large merges or swaps you may want to run:
 
 ```sh
 php craft clear-caches/all
@@ -139,16 +174,18 @@ to refresh Craft's element and template caches.
 
 ## Configuration
 
-Plugin-wide settings (primarily the list of tag-like entry sections) live on the **Settings → Plugins → Tidy Tags** screen and can be overlaid from `config/tidytags.php`; see [Configuration file](#configuration-file) above. The duplicate similarity threshold is a query parameter on the Duplicates page (`?threshold=N`), and the "did you mean" endpoint accepts `title`, `groupId`, and `siteId` parameters if you want to call it from your own code.
+Plugin-wide settings (tag-like sections and per-source field config) live on the **Settings → Plugins → Tidy Tags** screen and can be overlaid from `config/tidytags.php`; see [Configuration file](#configuration-file) above. The duplicate similarity threshold is a query parameter on the Duplicates page (`?threshold=N`), and the "did you mean" endpoint accepts `title`, `groupId`, and `siteId` parameters if you want to call it from your own code.
 
 ## Action endpoints
 
 | Action | Method | Params |
 | --- | --- | --- |
 | `tidytags/tags/check-duplicate` | GET | `title`, `groupId`, `siteId` |
+| `tidytags/tags/usages` | GET | `elementId` |
 | `tidytags/tags/rename` | POST | `tagId`, `title`, `siteId` |
 | `tidytags/tags/delete` | POST | `tagId` or `tagIds[]` |
 | `tidytags/tags/merge` | POST | `targetId`, `sourceIds[]` |
+| `tidytags/tags/swap` | POST | `targetId`, `sourceIds[]` |
 
 All mutating endpoints require the `accessPlugin-tidytags` permission and a CSRF token.
 

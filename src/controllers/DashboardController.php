@@ -66,10 +66,20 @@ class DashboardController extends Controller
         $thresholdParam = $request->getQueryParam('threshold');
         $threshold = ($thresholdParam !== null && $thresholdParam !== '') ? (int)$thresholdParam : null;
 
-        $results = $plugin->duplicateDetector->findAllDuplicates($siteId, $threshold);
+        $scope = $request->getQueryParam('scope', 'within');
+
+        if ($scope === 'cross') {
+            $crossClusters = $plugin->duplicateDetector->findCrossSourceDuplicates($siteId, $threshold);
+            $results = [];
+        } else {
+            $results = $plugin->duplicateDetector->findAllDuplicates($siteId, $threshold);
+            $crossClusters = [];
+        }
 
         return $this->renderTemplate('tidytags/duplicates', [
             'results' => $results,
+            'crossClusters' => $crossClusters,
+            'scope' => $scope === 'cross' ? 'cross' : 'within',
             'sites' => Craft::$app->getSites()->getAllSites(),
             'selectedSiteId' => $siteId,
             'threshold' => $threshold ?? $plugin->duplicateDetector->defaultThreshold,

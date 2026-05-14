@@ -9,13 +9,20 @@ use yii\web\BadRequestHttpException;
 use yii\web\Response;
 
 /**
- * Tag element mutations and the editor-side duplicate check endpoint.
+ * Tag mutations, cross-type relation swap, and the editor-side duplicate /
+ * usage lookup endpoints.
  *
  * Browse/search views for all sources (including entry-backed tag-like
- * sections) live in SourcesController. This controller is intentionally
- * tag-only: rename, merge, and delete operate on Tag elements exclusively,
- * and the element query scoping makes that safe even if a caller posts an
- * entry ID — the record won't be found and the action no-ops.
+ * sections) live in SourcesController. Most actions here remain tag-only:
+ * rename, merge, and delete operate on Tag elements exclusively, and the
+ * element query scoping makes that safe even if a caller posts an entry ID
+ * — the record won't be found and the action no-ops.
+ *
+ * The exceptions are:
+ * - {@see actionUsages()} reads relations against any element ID.
+ * - {@see actionSwap()} re-points relations from any element to any other
+ *   element without deleting either side, so it's safe to call across
+ *   element types.
  */
 class TagsController extends Controller
 {
@@ -117,8 +124,8 @@ class TagsController extends Controller
     }
 
     /**
-     * Returns JSON with tags similar to a given title, used by the editor-side
-     * "did you mean" warning.
+     * Returns JSON with tags and entries similar to a given title, used by the
+     * editor-side "did you mean" warning.
      */
     public function actionCheckDuplicate(): Response
     {
@@ -139,5 +146,61 @@ class TagsController extends Controller
             'success' => true,
             'matches' => $matches,
         ]);
+    }
+
+    /**
+     * Returns JSON with every relation that targets a given element. Used by
+     * the duplicates view to expand a cluster item and preview what would
+     * move during a swap or merge.
+     */
+    public function actionUsages(): Response
+    {
+        $this->requireAcceptsJson();
+
+        $elementId = (int)Craft::$app->getRequest()->getParam('elementId');
+        if ($elementId <= 0) {
+            return $this->asJson(['success' => false, 'usages' => []]);
+        }
+
+        $usages = Plugin::$plugin->sources->getUsages($elementId);
+
+        return $this->asJson([
+            'success' => true,
+            'usages' => $usages,
+        ]);
+    }
+
+    /**
+     * Re-points every relation from the given source elements onto the target
+     * element, without deleting the source elements themselves. Works across
+     * element types — tag → tag, entry → entry, or any cross-type combination.
+     */
+    public function actionSwap(): Response
+    {
+        $this->requirePostRequest();
+        $request = Craft::$app->getRequest();
+
+        $sourceIds = $request->getRequiredBodyParam('sourceIds');
+        $targetId = (int)$request->getRequiredBodyParam('targetId');
+
+        if (!is_array($sourceIds)) {
+            throw new BadRequestHttpException('sourceIds must be an array.');
+        }
+
+        $ok = Plugin::$plugin->tags->swapRelations(
+            array_map(fn($id) => (int)$id, $sourceIds),
+            $targetId,
+        );
+
+        if ($request->getAcceptsJson()) {
+            return $this->asJson(['success' => $ok]);
+        }
+
+        if ($ok) {
+            Craft::$app->getSession()->setNotice('Relations swapped.');
+        } else {
+            Craft::$app->getSession()->setError('Swap failed.');
+        }
+        return $this->redirectToPostedUrl();
     }
 }

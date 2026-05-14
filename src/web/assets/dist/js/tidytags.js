@@ -49,40 +49,104 @@
     if ($warning && $warning.length) {
       return $warning;
     }
-    $warning = $(
-      '<div class="tidytags-warning" style="display:none;margin-top:6px;padding:6px 10px;border-left:3px solid #e5a50a;background:#fff8e1;border-radius:3px;font-size:12px;color:#594500;"></div>'
-    );
+    var el = document.createElement('div');
+    el.className = 'tidytags-warning';
+    el.style.cssText =
+      'display:none;margin-top:6px;padding:8px 10px;border-left:3px solid #e5a50a;' +
+      'background:#fff8e1;border-radius:3px;font-size:12px;color:#594500;';
+    $warning = $(el);
     $input.after($warning);
     $input.data('tidytagsWarning', $warning);
     return $warning;
   }
 
-  function renderWarning($warning, matches) {
-    if (!matches || !matches.length) {
-      $warning.hide().empty();
-      return;
-    }
-    var titles = matches
-      .map(function (m) {
-        return '<strong>' + escapeHtml(m.title) + '</strong>';
-      })
-      .join(', ');
-    $warning
-      .html(
-        'Did you mean: ' +
-          titles +
-          '? <span style="opacity:.7">(similar tags already exist)</span>'
-      )
-      .show();
+  function clearChildren(node) {
+    while (node.firstChild) node.removeChild(node.firstChild);
   }
 
-  function escapeHtml(s) {
-    return String(s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
+  function renderMatch(match) {
+    var li = document.createElement('li');
+    li.style.cssText = 'padding:2px 0;';
+
+    var titleNode;
+    if (match.cpEditUrl) {
+      titleNode = document.createElement('a');
+      titleNode.href = match.cpEditUrl;
+      titleNode.target = '_blank';
+      titleNode.rel = 'noopener';
+    } else {
+      titleNode = document.createElement('span');
+    }
+    var strong = document.createElement('strong');
+    strong.textContent = match.title;
+    titleNode.appendChild(strong);
+    li.appendChild(titleNode);
+
+    if (match.differentiator) {
+      var diff = document.createElement('span');
+      diff.style.cssText = 'color:#0b5394;margin-left:4px;';
+      diff.textContent = '(' + match.differentiator + ')';
+      li.appendChild(diff);
+    }
+
+    var meta = document.createElement('span');
+    meta.style.cssText = 'color:#8a6e00;margin-left:6px;font-size:11px;';
+    var typeLabel = match.sourceType === 'tag' ? 'Tag' : 'Entry';
+    meta.appendChild(
+      document.createTextNode(' · ' + typeLabel + ' in ' + (match.sourceName || ''))
+    );
+    li.appendChild(meta);
+
+    if (match.displayValues) {
+      var keys = Object.keys(match.displayValues);
+      if (keys.length) {
+        var ul = document.createElement('ul');
+        ul.style.cssText =
+          'margin:2px 0 0 16px;padding:0;list-style:none;color:#594500;font-size:11px;';
+        keys.forEach(function (k) {
+          var item = document.createElement('li');
+          var b = document.createElement('strong');
+          b.textContent = k + ':';
+          item.appendChild(b);
+          item.appendChild(document.createTextNode(' ' + match.displayValues[k]));
+          ul.appendChild(item);
+        });
+        li.appendChild(ul);
+      }
+    }
+
+    return li;
+  }
+
+  function renderWarning($warning, matches) {
+    var node = $warning.get(0);
+    if (!node) return;
+
+    if (!matches || !matches.length) {
+      node.style.display = 'none';
+      clearChildren(node);
+      return;
+    }
+
+    clearChildren(node);
+
+    var heading = document.createElement('div');
+    heading.style.cssText = 'margin-bottom:4px;';
+    heading.appendChild(
+      document.createTextNode(
+        'Already exists — consider reusing one of these instead of creating a new tag:'
+      )
+    );
+    node.appendChild(heading);
+
+    var list = document.createElement('ul');
+    list.style.cssText = 'margin:0;padding:0 0 0 16px;list-style:disc;';
+    matches.forEach(function (m) {
+      list.appendChild(renderMatch(m));
+    });
+    node.appendChild(list);
+
+    node.style.display = 'block';
   }
 
   var checkTitle = debounce(function ($input, groupId, siteId) {

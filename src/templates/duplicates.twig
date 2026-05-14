@@ -4,9 +4,48 @@
 {% set title = "Duplicates"|t('tidytags') %}
 {% set selectedSubnavItem = "duplicates" %}
 
+{% macro renderItem(item) %}
+    <span class="tidytags-item-title">
+        {% if item.cpEditUrl %}
+            <a href="{{ item.cpEditUrl }}" target="_blank" rel="noopener" title="Open this {{ item.sourceType == 'tag' ? 'tag' : 'entry' }} in a new tab">
+                <strong>{{ item.title }}</strong>
+            </a>
+        {% else %}
+            <strong>{{ item.title }}</strong>
+        {% endif %}
+        {% if item.differentiator %}
+            <span class="tidytags-diff" style="color:#0b5394;font-size:11px;margin-left:4px;">
+                ({{ item.differentiator }})
+            </span>
+        {% endif %}
+    </span>
+    <span class="tidytags-item-meta" style="color:#8a8a8a;font-size:11px;margin-left:6px;">
+        in <a href="{{ cpUrl(item.sourceCpPath) }}">{{ item.sourceName }}</a>
+        <span class="tidytags-type-badge tidytags-type-{{ item.sourceType }}"
+              style="display:inline-block;margin-left:4px;padding:0 5px;border-radius:8px;font-size:9px;text-transform:uppercase;letter-spacing:.04em;background:{{ item.sourceType == 'tag' ? '#e3efff' : '#fff1e3' }};color:{{ item.sourceType == 'tag' ? '#0b5394' : '#8a4b00' }};">
+            {{ item.sourceType == 'tag' ? 'Tag' : 'Entry' }}
+        </span>
+        <span style="color:#b0b7bf;">#{{ item.id }}</span>
+    </span>
+    {% if item.displayValues|length %}
+        <ul class="tidytags-display" style="margin:2px 0 0 22px;padding:0;list-style:none;font-size:11px;color:#596673;">
+            {% for handle, value in item.displayValues %}
+                <li><strong>{{ handle }}:</strong> {{ value }}</li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+    <div class="tidytags-usages" data-element-id="{{ item.id }}" style="margin:4px 0 0 22px;">
+        <button type="button" class="btn small tidytags-show-usages" data-element-id="{{ item.id }}">
+            Show usages
+        </button>
+        <div class="tidytags-usages-list" style="display:none;margin-top:6px;font-size:12px;"></div>
+    </div>
+{% endmacro %}
+
 {% block content %}
 <div class="tidytags-duplicates">
     <form method="get" action="{{ cpUrl('tidytags/duplicates') }}" style="margin-bottom:16px;">
+        <input type="hidden" name="scope" value="{{ scope }}">
         <div class="flex">
             <div>
                 <label style="margin-right:6px;">Site:</label>
@@ -25,64 +64,225 @@
         </div>
         <p style="font-size:12px;color:#596673;margin-top:6px;">
             Lower threshold = stricter matching. Default is 2 (catches typos and pluralization).
-            Entry-backed sources are scanned but can only be reviewed here — merge/delete are tag-only.
+            Configure differentiator and display fields per source in
+            <a href="{{ cpUrl('settings/plugins/tidytags') }}">Settings → Tidy Tags</a>.
         </p>
     </form>
 
-    {% if results|length == 0 %}
-        <p>No duplicate clusters found at threshold {{ threshold }}.</p>
-    {% else %}
-        {% for result in results %}
-            {% set source = result.source %}
-            <div class="cluster">
-                <h3 style="display:flex;align-items:center;gap:8px;">
-                    <span>{{ source.name }}</span>
-                    <span class="tidytags-type-badge tidytags-type-{{ source.type }}"
-                          style="display:inline-block;padding:1px 6px;border-radius:10px;font-size:10px;text-transform:uppercase;letter-spacing:.04em;background:{{ source.type == 'tag' ? '#e3efff' : '#fff1e3' }};color:{{ source.type == 'tag' ? '#0b5394' : '#8a4b00' }};">
-                        {{ source.typeLabel }}
-                    </span>
-                </h3>
-                {% for cluster in result.clusters %}
-                    {% if source.isWritable %}
-                        <form method="post" action="" style="border-top:1px solid #eef1f5;padding:8px 0;">
-                            {{ csrfInput() }}
-                            {{ actionInput('tidytags/tags/merge') }}
-                            {{ redirectInput('tidytags/duplicates' ~ (selectedSiteId ? '?siteId=' ~ selectedSiteId : '')) }}
-                            <ul>
-                                {% for item in cluster %}
-                                    <li>
-                                        <input type="radio" name="targetId" value="{{ item.id }}" {{ loop.first ? 'checked' }} title="Keep this one">
-                                        <input type="checkbox" name="sourceIds[]" value="{{ item.id }}" {{ not loop.first ? 'checked' }} title="Merge into kept tag">
-                                        <strong>{{ item.title }}</strong>
-                                        <span style="color:#b0b7bf;font-size:11px;">#{{ item.id }}</span>
-                                    </li>
-                                {% endfor %}
-                            </ul>
-                            <div style="margin-top:8px;">
-                                <button type="submit" class="btn submit small"
-                                    onclick="return confirm('Merge selected tags into the target? This cannot be undone.');">
-                                    Merge cluster
-                                </button>
-                            </div>
-                        </form>
-                    {% else %}
-                        <div style="border-top:1px solid #eef1f5;padding:8px 0;">
-                            <ul>
-                                {% for item in cluster %}
-                                    <li>
-                                        <strong>{{ item.title }}</strong>
-                                        <span style="color:#b0b7bf;font-size:11px;">#{{ item.id }}</span>
-                                    </li>
-                                {% endfor %}
-                            </ul>
-                            <p style="margin-top:4px;font-size:11px;color:#8a8a8a;">
-                                Review these entries in their section to consolidate by hand.
-                            </p>
+    <nav class="tidytags-scope-tabs" style="margin-bottom:16px;border-bottom:1px solid #e2e6eb;">
+        <a href="{{ cpUrl('tidytags/duplicates', { scope: 'within', siteId: selectedSiteId, threshold: threshold }) }}"
+           style="display:inline-block;padding:8px 14px;text-decoration:none;color:{{ scope == 'within' ? '#0b5394' : '#596673' }};border-bottom:2px solid {{ scope == 'within' ? '#0b5394' : 'transparent' }};font-weight:{{ scope == 'within' ? '600' : '400' }};">
+            Within source
+        </a>
+        <a href="{{ cpUrl('tidytags/duplicates', { scope: 'cross', siteId: selectedSiteId, threshold: threshold }) }}"
+           style="display:inline-block;padding:8px 14px;text-decoration:none;color:{{ scope == 'cross' ? '#0b5394' : '#596673' }};border-bottom:2px solid {{ scope == 'cross' ? '#0b5394' : 'transparent' }};font-weight:{{ scope == 'cross' ? '600' : '400' }};">
+            Across sources
+        </a>
+    </nav>
+
+    {% if scope == 'cross' %}
+        <p style="color:#596673;font-size:12px;">
+            Items appearing under more than one source — usually a sign that an editor created a Tag for
+            something already maintained as a Team or Competition. Use <strong>Swap</strong> to re-point
+            relations from one entry to another (the source element is left in place for you to delete by
+            hand once you've verified).
+        </p>
+
+        {% if crossClusters|length == 0 %}
+            <p>No cross-source duplicates found at threshold {{ threshold }}.</p>
+        {% else %}
+            {% for cluster in crossClusters %}
+                <div class="cluster" style="border:1px solid #e2e6eb;border-radius:4px;padding:10px;margin-bottom:10px;">
+                    <form method="post" action="">
+                        {{ csrfInput() }}
+                        {{ actionInput('tidytags/tags/swap') }}
+                        {{ redirectInput('tidytags/duplicates?scope=cross' ~ (selectedSiteId ? '&siteId=' ~ selectedSiteId : '')) }}
+                        <ul style="list-style:none;padding:0;margin:0;">
+                            {% for item in cluster %}
+                                <li style="border-top:{{ loop.first ? 'none' : '1px solid #eef1f5' }};padding:8px 0;">
+                                    <input type="radio" name="targetId" value="{{ item.id }}" {{ loop.first ? 'checked' }} title="Keep this one (relations will point here)">
+                                    <input type="checkbox" name="sourceIds[]" value="{{ item.id }}" {{ not loop.first ? 'checked' }} title="Re-point relations from this item">
+                                    {{ _self.renderItem(item) }}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                        <div style="margin-top:8px;">
+                            <button type="submit" class="btn submit small"
+                                onclick="return confirm('Swap selected items into the target? Relations will be re-pointed; the source items themselves are left in place.');">
+                                Swap relations
+                            </button>
                         </div>
-                    {% endif %}
-                {% endfor %}
-            </div>
-        {% endfor %}
+                    </form>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% else %}
+        {% if results|length == 0 %}
+            <p>No within-source duplicate clusters found at threshold {{ threshold }}.</p>
+        {% else %}
+            {% for result in results %}
+                {% set source = result.source %}
+                <div class="cluster">
+                    <h3 style="display:flex;align-items:center;gap:8px;">
+                        <span>{{ source.name }}</span>
+                        <span class="tidytags-type-badge tidytags-type-{{ source.type }}"
+                              style="display:inline-block;padding:1px 6px;border-radius:10px;font-size:10px;text-transform:uppercase;letter-spacing:.04em;background:{{ source.type == 'tag' ? '#e3efff' : '#fff1e3' }};color:{{ source.type == 'tag' ? '#0b5394' : '#8a4b00' }};">
+                            {{ source.typeLabel }}
+                        </span>
+                    </h3>
+                    {% for cluster in result.clusters %}
+                        {% if source.isWritable %}
+                            <form method="post" action="" style="border-top:1px solid #eef1f5;padding:8px 0;">
+                                {{ csrfInput() }}
+                                {{ actionInput('tidytags/tags/merge') }}
+                                {{ redirectInput('tidytags/duplicates' ~ (selectedSiteId ? '?siteId=' ~ selectedSiteId : '')) }}
+                                <ul style="list-style:none;padding:0;margin:0;">
+                                    {% for item in cluster %}
+                                        <li style="padding:4px 0;">
+                                            <input type="radio" name="targetId" value="{{ item.id }}" {{ loop.first ? 'checked' }} title="Keep this one">
+                                            <input type="checkbox" name="sourceIds[]" value="{{ item.id }}" {{ not loop.first ? 'checked' }} title="Merge into kept tag">
+                                            {{ _self.renderItem(item) }}
+                                        </li>
+                                    {% endfor %}
+                                </ul>
+                                <div style="margin-top:8px;">
+                                    <button type="submit" class="btn submit small"
+                                        onclick="return confirm('Merge selected tags into the target? This cannot be undone.');">
+                                        Merge cluster
+                                    </button>
+                                </div>
+                            </form>
+                        {% else %}
+                            <form method="post" action="" style="border-top:1px solid #eef1f5;padding:8px 0;">
+                                {{ csrfInput() }}
+                                {{ actionInput('tidytags/tags/swap') }}
+                                {{ redirectInput('tidytags/duplicates' ~ (selectedSiteId ? '?siteId=' ~ selectedSiteId : '')) }}
+                                <ul style="list-style:none;padding:0;margin:0;">
+                                    {% for item in cluster %}
+                                        <li style="padding:4px 0;">
+                                            <input type="radio" name="targetId" value="{{ item.id }}" {{ loop.first ? 'checked' }}>
+                                            <input type="checkbox" name="sourceIds[]" value="{{ item.id }}" {{ not loop.first ? 'checked' }}>
+                                            {{ _self.renderItem(item) }}
+                                        </li>
+                                    {% endfor %}
+                                </ul>
+                                <div style="margin-top:8px;">
+                                    <button type="submit" class="btn small"
+                                        onclick="return confirm('Re-point relations from selected entries to the target? The entries themselves are left in place — delete them by hand once verified.');">
+                                        Swap relations
+                                    </button>
+                                    <span style="font-size:11px;color:#8a8a8a;margin-left:8px;">
+                                        Read-only source — Tidy Tags can swap relations but won't delete entries.
+                                    </span>
+                                </div>
+                            </form>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            {% endfor %}
+        {% endif %}
     {% endif %}
 </div>
+
+{% js %}
+(function(){
+    document.addEventListener('click', function(e){
+        var btn = e.target.closest('.tidytags-show-usages');
+        if (!btn) return;
+        var wrap = btn.parentElement;
+        var list = wrap.querySelector('.tidytags-usages-list');
+        var elementId = btn.getAttribute('data-element-id');
+        if (!list) return;
+
+        if (list.style.display === 'block') {
+            list.style.display = 'none';
+            btn.textContent = 'Show usages';
+            return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = 'Loading…';
+        var data = new URLSearchParams();
+        data.set('elementId', elementId);
+
+        fetch(Craft.getActionUrl('tidytags/tags/usages') + '?' + data.toString(), {
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+            btn.disabled = false;
+            renderUsages(list, j);
+            btn.textContent = 'Hide usages';
+            list.style.display = 'block';
+        })
+        .catch(function(){
+            btn.disabled = false;
+            btn.textContent = 'Show usages';
+            renderError(list);
+            list.style.display = 'block';
+        });
+    });
+
+    function clear(node){
+        while (node.firstChild) node.removeChild(node.firstChild);
+    }
+
+    function renderError(list){
+        clear(list);
+        var em = document.createElement('em');
+        em.textContent = 'Failed to load usages.';
+        list.appendChild(em);
+    }
+
+    function renderUsages(list, j){
+        clear(list);
+        if (!j || !j.success) { renderError(list); return; }
+        if (!j.usages || !j.usages.length) {
+            var em = document.createElement('em');
+            em.style.color = '#8a8a8a';
+            em.textContent = "No relations — this element isn't in use.";
+            list.appendChild(em);
+            return;
+        }
+        var ul = document.createElement('ul');
+        ul.style.cssText = 'list-style:none;padding:0;margin:0;';
+        j.usages.forEach(function(u){
+            var li = document.createElement('li');
+            li.style.cssText = 'padding:2px 0;';
+
+            var labelText = u.title || '(untitled)';
+            if (u.cpEditUrl) {
+                var a = document.createElement('a');
+                a.href = u.cpEditUrl;
+                a.target = '_blank';
+                a.rel = 'noopener';
+                a.textContent = labelText;
+                li.appendChild(a);
+            } else {
+                var span = document.createElement('span');
+                span.textContent = labelText;
+                li.appendChild(span);
+            }
+
+            var meta = document.createElement('span');
+            meta.style.cssText = 'color:#8a8a8a;font-size:11px;margin-left:6px;';
+
+            var fieldText = document.createTextNode(' in field ');
+            var code = document.createElement('code');
+            code.textContent = u.fieldHandle || '?';
+            meta.appendChild(fieldText);
+            meta.appendChild(code);
+
+            if (u.siteName) {
+                meta.appendChild(document.createTextNode(' · ' + u.siteName));
+            }
+            meta.appendChild(document.createTextNode(' · ' + (u.elementType || 'element')));
+
+            li.appendChild(meta);
+            ul.appendChild(li);
+        });
+        list.appendChild(ul);
+    }
+})();
+{% endjs %}
 {% endblock %}
