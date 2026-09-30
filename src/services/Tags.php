@@ -45,17 +45,22 @@ class Tags extends Component
         }
 
         $ok = true;
+        $renamed = false;
         foreach (Craft::$app->getSites()->getAllSites() as $site) {
             $tag = Tag::find()->id($tagId)->siteId($site->id)->status(null)->one();
             if ($tag === null) {
                 continue;
             }
+            $renamed = true;
             $tag->title = $newTitle;
             if (!Craft::$app->getElements()->saveElement($tag, true, true)) {
                 $ok = false;
             }
         }
-        return $ok;
+
+        // Report failure when the ID resolved to nothing at all, rather than
+        // letting the CP announce "Tag renamed." after a no-op.
+        return $renamed && $ok;
     }
 
     /**

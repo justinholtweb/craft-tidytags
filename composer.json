@@ -3,7 +3,7 @@
     "description": "Tag manager for Craft CMS 5 with multi-site support and duplicate detection.",
     "type": "craft-plugin",
     "license": "proprietary",
-    "version": "5.1.0",
+    "version": "5.2.0",
     "keywords": [
         "craftcms",
         "tags",
@@ -23,6 +23,14 @@
             "justinholtweb\\tidytags\\": "src/"
         }
     },
+    "autoload-dev": {
+        "psr-4": {
+            "justinholtweb\\tidytagstests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "codecept run unit"
+    },
     "extra": {
         "handle": "tidytags",
         "name": "Tidy Tags",
@@ -30,5 +38,21 @@
         "developerUrl": "https://justinholt.dev",
         "documentationUrl": "https://github.com/justinholtweb/craft-tidytags",
         "class": "justinholtweb\\tidytags\\Plugin"
+    },
+    "require-dev": {
+        "codeception/codeception": "^5.0",
+        "codeception/module-asserts": "^3.0",
+        "codeception/module-yii2": "^1.1",
+        "codeception/module-datafactory": "^3.0",
+        "codeception/module-phpbrowser": "^3.0",
+        "codeception/module-rest": "^3.0",
+        "vlucas/phpdotenv": "^5.4",
+        "fakerphp/faker": "^1.19"
+    },
+    "config": {
+        "allow-plugins": {
+            "yiisoft/yii2-composer": true,
+            "craftcms/plugin-installer": true
+        }
     }
 }
