@@ -1,5 +1,36 @@
 # Changelog
 
+## 5.2.0 - 2026-09-30
+
+### Added
+
+- **Selectable match strategy.** A new `matchStrategy` setting chooses how titles are compared. `fuzzy` (the default, and the only behaviour before this release) keeps normalized equality plus Levenshtein distance. `strict` compares titles after stripping affixes from the start and end, uses no edit distance at all, and rejects a pair outright when one title carries a qualifier token the other lacks.
+- **`TitleMatcher` service.** Title comparison now lives in its own service (`Plugin::$plugin->titleMatcher`) rather than inside `DuplicateDetector`, so the Duplicates dashboard, the cross-source scan and the editor "did you mean?" warning all agree on what counts as a duplicate. Public API: `compare()`, `compareFuzzy()`, `compareStrict()`, `normalize()`, `coreKey()`, `qualifiers()`, `tokens()`, `getStrategy()`.
+- **`affixTokens` setting.** Words stripped from the start and end of a title under the strict strategy — `fc`, `afc`, `cf`, `sc` and friends by default. Stripping is positional, so an affix in the middle of a title is left alone and `FIFA Club World Cup` is not reduced to `FIFA World Cup`.
+- **`qualifierTokens` setting.** Words that make two otherwise-matching titles different things — `women`, `ladies`, `ii`, `reserves`, `u21`, `one`, `two` and similar. Under the strict strategy, an asymmetry here vetoes the match, so `Arsenal` is never reported as a duplicate of `Arsenal Women`, nor `County Championship` of `County Championship One`.
+- **Matching settings UI.** **Settings → Plugins → Tidy Tags** gains a *Matching* section with the strategy picker and, under strict, editable token lists. Both lists accept a newline- or comma-separated paste, and both can still be driven from `config/tidytags.php` as arrays.
+
+### Why strict exists
+
+Edit distance suits the vocabulary most sites have: free-text tags typed by editors, where duplicates are misspellings. It is the wrong tool for a controlled vocabulary of proper nouns — clubs, competitions, places, people — because those names sit close together in edit space. Measured against a real 2,633-title corpus of teams, competitions and tags, the fuzzy strategy's six near-matches were *all* false positives (`Essex`/`Sussex`, `Durham`/`Fulham`, `Tampa`/`Samoa`, `Top 10`/`Top 14`), while it missed every genuine variant, because those differ by a whole affix word rather than a typo — `FC Bayern Munich`/`Bayern Munich` is three edits apart. On the same corpus the strict strategy found the four real variants and none of the false positives.
+
+Neither strategy is better in general, which is why this is a setting rather than a change of default.
+
+### Changed
+
+- `DuplicateDetector` delegates all title comparison to `TitleMatcher`. Method signatures, the `defaultThreshold` property and every returned item key are unchanged, and the fuzzy strategy produces identical results to 5.1.0.
+- `DuplicateDetector::findSimilar()` still reports a `distance` for each match under both strategies. Under strict, an exact match reports `0` and an affix-only match reports `1` (`TitleMatcher::DISTANCE_AFFIX`), so callers that sort by distance keep putting unambiguous matches first.
+- The `threshold` argument to `findDuplicates()`, `findAllDuplicates()`, `findCrossSourceDuplicates()` and `findSimilar()` is ignored under the strict strategy, which has no distance to threshold.
+- An unrecognised `matchStrategy` value falls back to `fuzzy` rather than matching nothing, so a typo in `config/tidytags.php` degrades to previous behaviour.
+
+### Fixed
+
+- `Tags::renameTag()` returned `true` when the given tag ID matched nothing, so the control panel announced "Tag renamed." after a no-op. It now reports failure when the ID resolves to no tag in any site.
+
+### Development
+
+- Added a [Codeception](https://codeception.com) unit suite that runs the plugin's services against a real, freshly installed Craft 5 database, with a DDEV config to run it. 156 tests / 323 assertions. See **Development** in the README.
+
 ## 5.1.0 - 2026-05-02
 
 ### Added

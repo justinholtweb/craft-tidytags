@@ -14,6 +14,7 @@ use justinholtweb\tidytags\models\Settings;
 use justinholtweb\tidytags\services\DuplicateDetector;
 use justinholtweb\tidytags\services\Sources;
 use justinholtweb\tidytags\services\Tags;
+use justinholtweb\tidytags\services\TitleMatcher;
 use Throwable;
 use yii\base\Event;
 
@@ -23,6 +24,7 @@ use yii\base\Event;
  * @property-read Tags $tags
  * @property-read Sources $sources
  * @property-read DuplicateDetector $duplicateDetector
+ * @property-read TitleMatcher $titleMatcher
  * @method Settings getSettings()
  */
 class Plugin extends BasePlugin
@@ -47,6 +49,7 @@ class Plugin extends BasePlugin
             'tags' => Tags::class,
             'sources' => Sources::class,
             'duplicateDetector' => DuplicateDetector::class,
+            'titleMatcher' => TitleMatcher::class,
         ]);
 
         $this->_registerCpUrlRules();

@@ -10,6 +10,64 @@
     {% endif %}
 {% endfor %}
 
+<h2>{{ "Matching"|t('tidytags') }}</h2>
+
+<p>
+    How Tidy Tags decides that two titles name the same thing. The right choice depends on
+    your vocabulary, so there is no compromise default — pick the one that describes your
+    titles.
+</p>
+
+{{ forms.selectField({
+    label: 'Match strategy'|t('tidytags'),
+    id: 'matchStrategy',
+    name: 'matchStrategy',
+    value: settings.matchStrategy,
+    options: [
+        { label: 'Fuzzy — tolerate typos (default)'|t('tidytags'), value: 'fuzzy' },
+        { label: 'Strict — affixes and qualifiers, no typo tolerance'|t('tidytags'), value: 'strict' },
+    ],
+    instructions: 'Fuzzy suits free-text tags typed by editors, where duplicates are misspellings. Strict suits controlled vocabularies of proper nouns — clubs, competitions, places, people — where names sit close together in edit space.'|t('tidytags'),
+}) }}
+
+<div style="background:#f8f9fa;border-left:3px solid #cbd5e0;padding:10px 12px;margin:0 0 20px;font-size:12px;">
+    <p style="margin:0 0 6px;"><strong>Fuzzy</strong> flags <code>Manchestor</code> against
+        <code>Manchester</code> — and also <code>Durham</code> against <code>Fulham</code>,
+        which are two characters apart.</p>
+    <p style="margin:0;"><strong>Strict</strong> flags <code>FC Bayern Munich</code> against
+        <code>Bayern Munich</code> and <code>Wrexham</code> against <code>Wrexham AFC</code>,
+        but never reports <code>Arsenal</code> as a duplicate of <code>Arsenal Women</code>.</p>
+</div>
+
+{% if settings.matchStrategy == 'strict' %}
+    {{ forms.textareaField({
+        label: 'Affix tokens'|t('tidytags'),
+        instructions: 'Words removed from the start and end of a title before comparing — one per line, or comma separated. Only the start and end: an affix in the middle is left alone, so "FIFA Club World Cup" is not reduced to "FIFA World Cup".'|t('tidytags'),
+        id: 'affixTokens',
+        name: 'affixTokens',
+        value: settings.getAffixTokens|join("\n"),
+        rows: 4,
+        class: 'code',
+    }) }}
+
+    {{ forms.textareaField({
+        label: 'Qualifier tokens'|t('tidytags'),
+        instructions: 'Words that make two otherwise-matching titles different things — one per line, or comma separated. When one title has one of these and the other does not, the pair is rejected. This is the accuracy-critical list in strict mode and it is specific to your domain, so curate it against your own titles.'|t('tidytags'),
+        id: 'qualifierTokens',
+        name: 'qualifierTokens',
+        value: settings.getQualifierTokens|join("\n"),
+        rows: 6,
+        class: 'code',
+    }) }}
+{% else %}
+    <p style="font-size:11px;color:#8a8a8a;margin-top:-8px;">
+        Affix and qualifier tokens only apply to the strict strategy. Switch to strict and save
+        to configure them.
+    </p>
+{% endif %}
+
+<hr>
+
 <h2>{{ "Tag-like sections"|t('tidytags') }}</h2>
 
 <p>

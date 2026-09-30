@@ -1,0 +1,8 @@
+/vendor
+/tests/_output/*
+!/tests/_output/.gitkeep
+/tests/_craft/storage/*
+!/tests/_craft/storage/.gitkeep
+/tests/_craft/config/project
+/tests/_support/_generated
+.DS_Store

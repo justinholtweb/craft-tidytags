@@ -11,6 +11,11 @@ use justinholtweb\tidytags\Plugin;
 /**
  * Near-duplicate detection across every Tidy Tags source.
  *
+ * Whether two titles count as near-duplicates is decided by {@see TitleMatcher},
+ * which offers a fuzzy (edit-distance) and a strict (affix-and-qualifier)
+ * strategy. This service owns the querying, enrichment and clustering; it does
+ * not own the comparison.
+ *
  * Items returned by every public method are enriched with the source they came
  * from, the differentiator field value (if configured), and a key/value map of
  * display field values, so callers can render disambiguating context (e.g.
@@ -20,6 +25,9 @@ class DuplicateDetector extends Component
 {
     /**
      * Maximum Levenshtein distance considered a near-duplicate.
+     *
+     * Only consulted by the fuzzy strategy; the strict strategy does not use
+     * edit distance at all.
      */
     public int $defaultThreshold = 2;
 
@@ -123,7 +131,7 @@ class DuplicateDetector extends Component
         }
 
         $effectiveSiteId = $siteId ?? Craft::$app->getSites()->getPrimarySite()->id;
-        $normalized = $this->_normalize($title);
+        $matcher = $this->_matcher();
 
         $candidateSources = [];
 
@@ -142,17 +150,9 @@ class DuplicateDetector extends Component
         foreach ($candidateSources as $source) {
             $query = Plugin::$plugin->sources->baseQuery($source)->siteId($effectiveSiteId);
             foreach ($query->all() as $element) {
-                $candidate = $this->_normalize((string)$element->title);
-                if ($candidate === $normalized) {
-                    $distance = 0;
-                } else {
-                    if (abs(strlen($candidate) - strlen($normalized)) > $threshold) {
-                        continue;
-                    }
-                    $distance = levenshtein($normalized, $candidate);
-                    if ($distance > $threshold) {
-                        continue;
-                    }
+                $distance = $matcher->compare($title, (string)$element->title, $threshold);
+                if ($distance === null) {
+                    continue;
                 }
 
                 $item = $this->_buildItem($element, $source);
@@ -206,20 +206,17 @@ class DuplicateDetector extends Component
     }
 
     /**
-     * Greedy single-pass clustering. Items in the same cluster have similar
-     * normalized titles AND compatible differentiator values (same value, or
-     * at least one side missing — which is treated as "could match, surface
-     * for review").
+     * Greedy single-pass clustering. Items in the same cluster have matching
+     * titles (per the active strategy) AND compatible differentiator values
+     * (same value, or at least one side missing — which is treated as "could
+     * match, surface for review").
      *
      * @param array<int, array<string, mixed>> $items
      * @return array<int, array<int, array<string, mixed>>>
      */
     private function _clusterItems(array $items, int $threshold): array
     {
-        foreach ($items as &$item) {
-            $item['_normalized'] = $this->_normalize($item['title']);
-        }
-        unset($item);
+        $matcher = $this->_matcher();
 
         $clusters = [];
         $assigned = [];
@@ -236,7 +233,7 @@ class DuplicateDetector extends Component
                 if (isset($assigned[$j])) {
                     continue;
                 }
-                if (!$this->_titleSimilar($items[$i]['_normalized'], $items[$j]['_normalized'], $threshold)) {
+                if ($matcher->compare($items[$i]['title'], $items[$j]['title'], $threshold) === null) {
                     continue;
                 }
                 if (!$this->_differentiatorCompatible($items[$i]['differentiator'], $items[$j]['differentiator'])) {
@@ -247,25 +244,11 @@ class DuplicateDetector extends Component
             }
 
             if (count($cluster) > 1) {
-                $clusters[] = array_map(function(array $c): array {
-                    unset($c['_normalized']);
-                    return $c;
-                }, $cluster);
+                $clusters[] = $cluster;
             }
         }
 
         return $clusters;
-    }
-
-    private function _titleSimilar(string $a, string $b, int $threshold): bool
-    {
-        if ($a === $b) {
-            return true;
-        }
-        if (abs(strlen($a) - strlen($b)) > $threshold) {
-            return false;
-        }
-        return levenshtein($a, $b) <= $threshold;
     }
 
     /**
@@ -282,10 +265,8 @@ class DuplicateDetector extends Component
         return mb_strtolower(trim($a)) === mb_strtolower(trim($b));
     }
 
-    private function _normalize(string $s): string
+    private function _matcher(): TitleMatcher
     {
-        $s = mb_strtolower(trim($s));
-        $s = preg_replace('/\s+/u', ' ', $s);
-        return $s;
+        return Plugin::$plugin->titleMatcher;
     }
 }

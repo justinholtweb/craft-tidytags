@@ -60,6 +60,53 @@ The group view shows every tag in a group with per-site columns so you can see w
 
 All actions are multi-site aware. Choosing "All sites" in the filter shows every tag once (keyed to the primary site) with its translations in sibling columns; choosing a specific site scopes everything to that site.
 
+### Matching strategies
+
+Everything in Tidy Tags that asks "are these two titles the same thing?" — the duplicate scanner, the cross-source scan, the editor warning — goes through one service, so they always agree. How it answers is set by **Match strategy** under **Settings → Plugins → Tidy Tags**.
+
+| | `fuzzy` (default) | `strict` |
+| --- | --- | --- |
+| Case, whitespace, punctuation | ignored | ignored |
+| Typos | matched, within a Levenshtein threshold | not matched |
+| Leading/trailing affixes (`FC`, `AFC`, `CF`…) | not matched | matched |
+| Qualifiers (`Women`, `II`, `U21`, `One`…) | ignored | veto the match |
+
+**Pick `fuzzy`** if your tags are free text typed by editors. The duplicates you have are misspellings, and that is what edit distance is for: `Manchestor` gets flagged against `Manchester`.
+
+**Pick `strict`** if your tags are a controlled vocabulary of proper nouns — clubs, competitions, places, people. Edit distance is the wrong tool for these, because such names sit close together in edit space while the variation that actually occurs is a whole affix word.
+
+Measured against a real 2,633-title corpus of teams, competitions and tags:
+
+```
+fuzzy    Essex   ~ Sussex      Durham ~ Fulham      Tampa ~ Samoa     <- all false positives
+         Top 10  ~ Top 14
+         ...and missed FC Bayern Munich ~ Bayern Munich (3 edits apart)
+
+strict   FC Bayern Munich ~ Bayern Munich        Wrexham    ~ Wrexham AFC
+         Real Madrid      ~ Real Madrid CF       Barrow AFC ~ Barrow
+         ...and none of the above false positives
+```
+
+Neither is better in general, which is why it is a setting and not a change of default. Upgrading to 5.2.0 changes nothing until you switch it.
+
+#### Affix tokens
+
+Under `strict`, these words are stripped from a title before comparing — but only from the **start and end**. An affix in the middle is left alone, so `FIFA Club World Cup` is not quietly reduced to `FIFA World Cup` and reported as a duplicate of a separate competition.
+
+The default list covers the club prefixes and suffixes common in association football and rugby. Replace it with whatever your domain uses.
+
+#### Qualifier tokens
+
+Under `strict`, these are words that make two otherwise-matching titles *different things*. When one title carries one and the other does not, the pair is rejected outright:
+
+- `Arsenal` is not a duplicate of `Arsenal Women`
+- `County Championship` is not a duplicate of `County Championship One`
+- `Bayern Munich` is not a duplicate of `Bayern Munich II`
+
+Note how this differs from a differentiator field, deliberately. A missing differentiator value means *unknown*, so the cluster is still surfaced for review. A qualifier word in the title is a positive statement about which thing this is, so it blocks the match.
+
+This list is the accuracy-critical setting in `strict` mode, and it is domain-specific — a cricket, rugby or futsal vocabulary needs different words from a football one. Expect to curate it against your own titles rather than relying on the default.
+
 ### Duplicate scanner
 
 The **Duplicates** tab has two scopes:
@@ -74,7 +121,7 @@ Each cluster item:
 - Shows configured display field values (e.g. `sport: Football`) so you can tell same-named items apart
 - Has a **Show usages** button that lists every entry holding a relation to it, with edit links
 
-The Levenshtein threshold is configurable per-scan (default 2, range 1–6).
+Under the `fuzzy` strategy the Levenshtein threshold is configurable per-scan (default 2, range 1–6). The `strict` strategy has no distance to threshold, so the control has no effect there.
 
 #### Differentiator and display fields
 
@@ -120,6 +167,14 @@ The plugin settings screen is the primary place to manage tag-like sections and 
 <?php
 // config/tidytags.php
 return [
+    // 'fuzzy' (default) or 'strict' — see Matching strategies above.
+    'matchStrategy' => 'strict',
+
+    // Only used by the strict strategy. Arrays here, or a newline/comma
+    // separated string, or leave them out to keep the defaults.
+    'affixTokens'     => ['fc', 'afc', 'cf', 'sc', 'ac'],
+    'qualifierTokens' => ['women', 'ladies', 'ii', 'reserves', 'u21', 'one', 'two'],
+
     'tagLikeSectionUids' => [
         'af2a1ee1-7a4b-4d9a-bc0b-6b3b5b9f3c8b', // teams
         'c4e1be83-7c18-47e3-b6aa-2b5d1b9a94d2', // competitions
@@ -174,7 +229,7 @@ to refresh Craft's element and template caches.
 
 ## Configuration
 
-Plugin-wide settings (tag-like sections and per-source field config) live on the **Settings → Plugins → Tidy Tags** screen and can be overlaid from `config/tidytags.php`; see [Configuration file](#configuration-file) above. The duplicate similarity threshold is a query parameter on the Duplicates page (`?threshold=N`), and the "did you mean" endpoint accepts `title`, `groupId`, and `siteId` parameters if you want to call it from your own code.
+Plugin-wide settings (match strategy, affix and qualifier tokens, tag-like sections, and per-source field config) live on the **Settings → Plugins → Tidy Tags** screen and can be overlaid from `config/tidytags.php`; see [Configuration file](#configuration-file) above. The duplicate similarity threshold is a query parameter on the Duplicates page (`?threshold=N`), and the "did you mean" endpoint accepts `title`, `groupId`, and `siteId` parameters if you want to call it from your own code.
 
 ## Action endpoints
 
@@ -188,6 +243,24 @@ Plugin-wide settings (tag-like sections and per-source field config) live on the
 | `tidytags/tags/swap` | POST | `targetId`, `sourceIds[]` |
 
 All mutating endpoints require the `accessPlugin-tidytags` permission and a CSRF token.
+
+## Development
+
+The repo ships a [DDEV](https://ddev.com) config and a Codeception suite that runs the plugin's services against a real, freshly installed Craft 5 database.
+
+```sh
+ddev start
+ddev composer install
+ddev exec vendor/bin/codecept run unit
+```
+
+The suite installs Craft into the DDEV database from scratch on every run and wraps each test in a transaction, so it needs no seeded project config and leaves nothing behind. Test-only Craft config lives in `tests/_craft/`, and `tests/support/Fixtures.php` builds tag groups, tag-like channel sections, custom fields, extra sites, and raw relation rows.
+
+To run a single test class:
+
+```sh
+ddev exec vendor/bin/codecept run unit DuplicateDetectorTest
+```
 
 ## License
 
