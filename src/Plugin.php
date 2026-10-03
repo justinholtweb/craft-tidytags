@@ -6,7 +6,9 @@ use Craft;
 use craft\base\Model;
 use craft\base\Plugin as BasePlugin;
 use craft\events\RegisterUrlRulesEvent;
+use craft\events\RegisterUserPermissionsEvent;
 use craft\events\TemplateEvent;
+use craft\services\UserPermissions;
 use craft\web\UrlManager;
 use craft\web\View;
 use justinholtweb\tidytags\assetbundles\TidyTagsAsset;
@@ -29,6 +31,17 @@ use yii\base\Event;
  */
 class Plugin extends BasePlugin
 {
+    /**
+     * Rename tags, merge tags, and swap relations between source elements.
+     * Merge additionally requires {@see PERMISSION_DELETE_TAGS}.
+     */
+    public const PERMISSION_MANAGE_TAGS = 'tidytags-manageTags';
+
+    /**
+     * Delete tags, either directly or as the second half of a merge.
+     */
+    public const PERMISSION_DELETE_TAGS = 'tidytags-deleteTags';
+
     public static ?Plugin $plugin = null;
 
     public string $schemaVersion = '1.0.0';
@@ -53,6 +66,7 @@ class Plugin extends BasePlugin
         ]);
 
         $this->_registerCpUrlRules();
+        $this->_registerPermissions();
         $this->_registerCpAssetBundle();
     }
 
@@ -143,6 +157,33 @@ class Plugin extends BasePlugin
                 $event->rules['tidytags/group/<groupId:\d+>/site/<siteId:\d+>'] = 'tidytags/sources/group';
                 $event->rules['tidytags/section/<sectionId:\d+>'] = 'tidytags/sources/section';
                 $event->rules['tidytags/section/<sectionId:\d+>/site/<siteId:\d+>'] = 'tidytags/sources/section';
+            }
+        );
+    }
+
+    /**
+     * Registers the permissions that gate every mutation. Plugin access alone
+     * only allows browsing sources, scanning for duplicates and viewing usages.
+     */
+    private function _registerPermissions(): void
+    {
+        Event::on(
+            UserPermissions::class,
+            UserPermissions::EVENT_REGISTER_PERMISSIONS,
+            function(RegisterUserPermissionsEvent $event) {
+                $event->permissions[] = [
+                    'heading' => 'Tidy Tags',
+                    'permissions' => [
+                        self::PERMISSION_MANAGE_TAGS => [
+                            'label' => 'Rename and merge tags, and swap relations',
+                            'nested' => [
+                                self::PERMISSION_DELETE_TAGS => [
+                                    'label' => 'Delete tags',
+                                ],
+                            ],
+                        ],
+                    ],
+                ];
             }
         );
     }

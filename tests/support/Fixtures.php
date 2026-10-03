@@ -5,6 +5,7 @@ namespace justinholtweb\tidytagstests\support;
 use Craft;
 use craft\elements\Entry;
 use craft\elements\Tag;
+use craft\elements\User;
 use craft\fieldlayoutelements\CustomField;
 use craft\fieldlayoutelements\entries\EntryTitleField;
 use craft\fields\PlainText;
@@ -203,6 +204,44 @@ final class Fixtures
         }
 
         return $entry;
+    }
+
+    /**
+     * Creates a user. Non-admins get the given permissions plus `accessCp`, so a
+     * test can build someone who has plugin access but not, say, delete rights.
+     *
+     * `accessCp` is added because Craft nests `accessPlugin-*` under it and
+     * silently drops a nested permission whose parent is missing.
+     *
+     * @param string[] $permissions
+     */
+    public static function createUser(string $username, bool $admin = false, array $permissions = []): User
+    {
+        $username .= self::uniq();
+        $user = new User([
+            'username' => $username,
+            'email' => $username . '@example.com',
+            'admin' => $admin,
+        ]);
+
+        if (!Craft::$app->getElements()->saveElement($user, false)) {
+            throw new RuntimeException('Could not save user: ' . self::errors($user->getErrors()));
+        }
+
+        if ($permissions !== []) {
+            Craft::$app->getUserPermissions()->saveUserPermissions($user->id, ['accessCp', ...$permissions]);
+        }
+
+        return $user;
+    }
+
+    /**
+     * Makes $user the logged-in identity for the rest of the test, or logs out
+     * when given null.
+     */
+    public static function login(?User $user): void
+    {
+        Craft::$app->getUser()->setIdentity($user);
     }
 
     /**

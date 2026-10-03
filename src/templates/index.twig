@@ -1,10 +1,10 @@
 {% extends "_layouts/cp" %}
-{% import "_includes/forms" as forms %}
 
 {% set title = "Tidy Tags"|t('tidytags') %}
 {% set selectedSubnavItem = "dashboard" %}
 
 {% block content %}
+{% import "tidytags/_macros" as tt %}
 <div class="tidytags-dashboard">
     {% if rows|length == 0 %}
         <p>
@@ -17,36 +17,30 @@
         <table class="data fullwidth">
             <thead>
                 <tr>
-                    <th>Source</th>
-                    <th>Total</th>
+                    <th scope="col">Source</th>
+                    <th scope="col">Total</th>
                     {% for site in sites %}
-                        <th>{{ site.name }}</th>
+                        <th scope="col">{{ site.name }}</th>
                     {% endfor %}
-                    <th></th>
+                    <th scope="col"><span class="visually-hidden">Actions</span></th>
                 </tr>
             </thead>
             <tbody>
                 {% for row in rows %}
                     {% set source = row.source %}
                     <tr>
-                        <td>
+                        <th scope="row">
                             <strong>{{ source.name }}</strong>
-                            <span class="tidytags-type-badge tidytags-type-{{ source.type }}"
-                                  style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:10px;font-size:10px;text-transform:uppercase;letter-spacing:.04em;background:{{ source.type == 'tag' ? '#e3efff' : '#fff1e3' }};color:{{ source.type == 'tag' ? '#0b5394' : '#8a4b00' }};">
-                                {{ source.typeLabel }}
-                            </span>
+                            {{ tt.badge(source.type, source.typeLabel) }}
                             {% if not source.isWritable %}
-                                <span title="Read-only: rename, merge, and delete are disabled for entry-backed sources."
-                                      style="margin-left:4px;font-size:11px;color:#8a8a8a;">read-only</span>
+                                <span class="tidytags-note" title="Read-only: rename, merge, and delete are disabled for entry-backed sources.">read-only</span>
                             {% endif %}
                             <br>
-                            <code style="font-size:11px;color:#596673;">{{ source.handle }}</code>
-                        </td>
-                        <td>{{ row.total }}</td>
+                            <code class="tidytags-handle">{{ source.handle }}</code>
+                        </th>
+                        <td>{{ row.total|number }}</td>
                         {% for site in sites %}
-                            <td>
-                                <span class="site-count">{{ row.countsBySite[site.id] ?? 0 }}</span>
-                            </td>
+                            <td><span class="tidytags-count">{{ (row.countsBySite[site.id] ?? 0)|number }}</span></td>
                         {% endfor %}
                         <td>
                             <a class="btn small" href="{{ cpUrl(source.cpPath) }}">Manage</a>

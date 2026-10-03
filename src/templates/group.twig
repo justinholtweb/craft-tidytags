@@ -1,5 +1,4 @@
 {% extends "_layouts/cp" %}
-{% import "_includes/forms" as forms %}
 
 {% set title = source.name %}
 {% set selectedSubnavItem = "dashboard" %}
@@ -8,40 +7,54 @@
     { label: "Tidy Tags"|t('tidytags'), url: cpUrl('tidytags') }
 ] %}
 
+{% block content %}
+{% import "_includes/forms" as forms %}
+{% import "tidytags/_macros" as tt %}
 {% set basePath = source.cpPath %}
 {% set placeholder = source.type == 'tag' ? 'Search tags...' : 'Search entries...' %}
+{% set canAct = source.isWritable and (canManage or canDelete) %}
 
-{% block content %}
+{# Query params that survive paging, so a page link keeps the search and site filter. #}
+{% set filterParams = {}
+    |merge(search ? { search: search } : {})
+    |merge(selectedSiteId ? { siteId: selectedSiteId } : {}) %}
+
+{% set siteOptions = [{ label: 'All sites'|t('tidytags'), value: '' }] %}
+{% for site in sites %}
+    {% set siteOptions = siteOptions|merge([{ label: site.name, value: site.id }]) %}
+{% endfor %}
+
 <div class="tidytags-group">
-    <div style="margin-bottom:12px;">
-        <span class="tidytags-type-badge tidytags-type-{{ source.type }}"
-              style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;text-transform:uppercase;letter-spacing:.04em;background:{{ source.type == 'tag' ? '#e3efff' : '#fff1e3' }};color:{{ source.type == 'tag' ? '#0b5394' : '#8a4b00' }};">
-            {{ source.typeLabel }}
-        </span>
+    <div class="tidytags-source-meta">
+        {{ tt.badge(source.type, source.typeLabel) }}
         {% if not source.isWritable %}
-            <span style="margin-left:6px;font-size:12px;color:#596673;">
+            <span class="tidytags-note">
                 Read-only — rename, merge, and delete are disabled for entry-backed sources.
                 Manage these entries in their section.
             </span>
         {% endif %}
     </div>
 
-    <form method="get" action="{{ cpUrl(basePath) }}" style="margin-bottom:16px;">
+    <form method="get" action="{{ cpUrl(basePath) }}" class="tidytags-toolbar">
         <div class="flex">
-            {{ forms.text({
-                name: 'search',
-                value: search,
-                placeholder: placeholder,
-                class: 'fullwidth',
-            }) }}
-            <div>
-                <label style="margin-right:6px;">Site:</label>
-                <select name="siteId" onchange="this.form.submit()">
-                    <option value="">All sites</option>
-                    {% for site in sites %}
-                        <option value="{{ site.id }}" {{ selectedSiteId == site.id ? 'selected' }}>{{ site.name }}</option>
-                    {% endfor %}
-                </select>
+            <div class="flex-grow">
+                {{ forms.text({
+                    name: 'search',
+                    value: search,
+                    placeholder: placeholder,
+                    class: 'fullwidth',
+                    inputAttributes: { aria: { label: placeholder } },
+                }) }}
+            </div>
+            <div class="flex">
+                <label for="tidytags-site">Site:</label>
+                {{ forms.select({
+                    id: 'tidytags-site',
+                    name: 'siteId',
+                    options: siteOptions,
+                    value: selectedSiteId,
+                    inputAttributes: { data: { autosubmit: true } },
+                }) }}
             </div>
             <button type="submit" class="btn submit">Filter</button>
         </div>
@@ -49,44 +62,67 @@
 
     <form id="tidytags-bulk-form" method="post" action="">
         {{ csrfInput() }}
-        {{ redirectInput(basePath ~ (selectedSiteId ? '/site/' ~ selectedSiteId : '')) }}
+        {% set returnParams = filterParams|merge(pagination.page > 1 ? { page: pagination.page } : {}) %}
+        {{ redirectInput(basePath ~ (returnParams ? '?' ~ returnParams|url_encode : '')) }}
 
-        {% if source.isWritable %}
+        {% if canAct %}
             <div class="tidytags-actions">
-                <button type="button" class="btn" data-action="rename" disabled>Rename…</button>
-                <button type="button" class="btn" data-action="merge" disabled>Merge…</button>
-                <button type="button" class="btn delete" data-action="delete" disabled>Delete</button>
-                <span class="tidytags-selected-count" style="opacity:.7;font-size:12px;">0 selected</span>
+                {% if canManage %}
+                    <button type="button" class="btn" data-action="rename" disabled>Rename…</button>
+                    {% if canDelete %}
+                        <button type="button" class="btn" data-action="merge" disabled>Merge…</button>
+                    {% endif %}
+                {% endif %}
+                {% if canDelete %}
+                    <button type="button" class="btn delete" data-action="delete" disabled>Delete</button>
+                {% endif %}
+                <span class="tidytags-selected-count tidytags-note" aria-live="polite">0 selected</span>
             </div>
         {% endif %}
 
         {% if rows|length == 0 %}
             <p>Nothing found.</p>
         {% else %}
+            <p class="tidytags-page-summary light">
+                {{ 'Showing {first}–{last} of {total}'|t('tidytags', {
+                    first: pagination.first|number,
+                    last: pagination.last|number,
+                    total: pagination.total|number,
+                }) }}
+            </p>
             <table class="data fullwidth collapsible">
                 <thead>
                     <tr>
-                        {% if source.isWritable %}
-                            <th class="tidytags-checkbox">
-                                <input type="checkbox" id="tidytags-select-all">
+                        {% if canAct %}
+                            <th scope="col" class="tidytags-checkbox">
+                                {{ forms.checkbox({
+                                    id: 'tidytags-select-all',
+                                    aria: { label: 'Select all on this page'|t('tidytags') },
+                                }) }}
                             </th>
                         {% endif %}
-                        <th>Title</th>
+                        <th scope="col">Title</th>
                         {% if selectedSiteId is null %}
                             {% for site in sites %}
-                                <th>{{ site.handle }}</th>
+                                <th scope="col">{{ site.handle }}</th>
                             {% endfor %}
                         {% endif %}
-                        <th></th>
+                        <th scope="col"><span class="visually-hidden">Actions</span></th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for row in rows %}
                         {% set element = row.element %}
                         <tr data-element-id="{{ element.id }}">
-                            {% if source.isWritable %}
+                            {% if canAct %}
                                 <td class="tidytags-checkbox">
-                                    <input type="checkbox" name="tagIds[]" value="{{ element.id }}" class="tidytags-row-check">
+                                    {{ forms.checkbox({
+                                        id: 'tidytags-check-' ~ element.id,
+                                        name: 'tagIds[]',
+                                        value: element.id,
+                                        class: 'tidytags-row-check',
+                                        aria: { label: element.title },
+                                    }) }}
                                 </td>
                             {% endif %}
                             <td class="tidytags-title-cell">
@@ -97,9 +133,9 @@
                                     <td>
                                         {% set t = row.titles[site.id] ?? null %}
                                         {% if t %}
-                                            <span style="font-size:12px;">{{ t }}</span>
+                                            <span class="smalltext">{{ t }}</span>
                                         {% else %}
-                                            <span style="color:#b0b7bf;">—</span>
+                                            <span class="tidytags-missing" title="Not in this site">—</span>
                                         {% endif %}
                                     </td>
                                 {% endfor %}
@@ -114,11 +150,18 @@
                     {% endfor %}
                 </tbody>
             </table>
+            {{ tt.pager(pagination, basePath, filterParams) }}
         {% endif %}
     </form>
 </div>
 
-{% if source.isWritable %}
+{% js %}
+document.querySelectorAll('.tidytags-group [data-autosubmit]').forEach(function(input){
+    input.addEventListener('change', function(){ input.form.submit(); });
+});
+{% endjs %}
+
+{% if canAct %}
 {% js %}
 (function(){
     var form = document.getElementById('tidytags-bulk-form');
@@ -138,9 +181,9 @@
     function update() {
         var n = selected().length;
         countEl.textContent = n + ' selected';
-        btnRename.disabled = n !== 1;
-        btnMerge.disabled = n < 2;
-        btnDelete.disabled = n === 0;
+        if (btnRename) btnRename.disabled = n !== 1;
+        if (btnMerge) btnMerge.disabled = n < 2;
+        if (btnDelete) btnDelete.disabled = n === 0;
     }
 
     if (selectAll) {
@@ -153,7 +196,7 @@
         c.addEventListener('change', update);
     });
 
-    btnDelete.addEventListener('click', function(){
+    btnDelete && btnDelete.addEventListener('click', function(){
         var sel = selected();
         if (!sel.length) return;
         if (!confirm('Delete ' + sel.length + ' tag(s)? This cannot be undone.')) return;
@@ -161,7 +204,7 @@
         form.submit();
     });
 
-    btnRename.addEventListener('click', function(){
+    btnRename && btnRename.addEventListener('click', function(){
         var sel = selected();
         if (sel.length !== 1) return;
         var tagId = sel[0].value;
@@ -184,11 +227,11 @@
         .then(function(r){ return r.json(); })
         .then(function(j){
             if (j.success) { Craft.cp.displayNotice('Tag renamed.'); location.reload(); }
-            else { Craft.cp.displayError('Rename failed.'); }
+            else { Craft.cp.displayError(j.message || 'Rename failed.'); }
         });
     });
 
-    btnMerge.addEventListener('click', function(){
+    btnMerge && btnMerge.addEventListener('click', function(){
         var sel = selected();
         if (sel.length < 2) return;
         var titles = sel.map(function(c){
@@ -218,7 +261,7 @@
         .then(function(r){ return r.json(); })
         .then(function(j){
             if (j.success) { Craft.cp.displayNotice('Tags merged.'); location.reload(); }
-            else { Craft.cp.displayError('Merge failed.'); }
+            else { Craft.cp.displayError(j.message || 'Merge failed.'); }
         });
     });
 

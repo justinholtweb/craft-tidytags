@@ -1,0 +1,52 @@
+{# Shared markup for the Tidy Tags CP screens. Styling lives in css/tidytags.css. #}
+
+{# A Tag / Entry pill. `type` is a Source type ('tag' or 'entry'). #}
+{% macro badge(type, label = null) %}
+    <span class="tidytags-badge tidytags-badge--{{ type == 'tag' ? 'tag' : 'entry' }}">
+        {{- label ?? (type == 'tag' ? 'Tag'|t('tidytags') : 'Entry'|t('tidytags')) -}}
+    </span>
+{% endmacro %}
+
+{#
+ # Numbered pager. `pagination` needs `page` and `totalPages`; `params` are the
+ # query params every page link keeps (search, site, scope and so on).
+ #}
+{% macro pager(pagination, path, params = {}) %}
+    {% if pagination.totalPages > 1 %}
+        {% set page = pagination.page %}
+        {% set last = pagination.totalPages %}
+        {% set from = max(1, page - 2) %}
+        {% set to = min(last, page + 2) %}
+        <nav class="tidytags-pagination flex" aria-label="{{ 'Pagination'|t('tidytags') }}">
+            {% if page > 1 %}
+                <a class="btn small" href="{{ cpUrl(path, params|merge({ page: page - 1 })) }}" rel="prev">{{ 'Previous'|t('tidytags') }}</a>
+            {% else %}
+                <span class="btn small disabled" aria-disabled="true">{{ 'Previous'|t('tidytags') }}</span>
+            {% endif %}
+
+            {% if from > 1 %}
+                <a class="btn small" href="{{ cpUrl(path, params|merge({ page: 1 })) }}">1</a>
+                {% if from > 2 %}<span class="tidytags-pagination-gap">…</span>{% endif %}
+            {% endif %}
+
+            {% for p in from..to %}
+                {% if p == page %}
+                    <span class="btn small active" aria-current="page">{{ p }}</span>
+                {% else %}
+                    <a class="btn small" href="{{ cpUrl(path, params|merge({ page: p })) }}">{{ p }}</a>
+                {% endif %}
+            {% endfor %}
+
+            {% if to < last %}
+                {% if to < last - 1 %}<span class="tidytags-pagination-gap">…</span>{% endif %}
+                <a class="btn small" href="{{ cpUrl(path, params|merge({ page: last })) }}">{{ last }}</a>
+            {% endif %}
+
+            {% if page < last %}
+                <a class="btn small" href="{{ cpUrl(path, params|merge({ page: page + 1 })) }}" rel="next">{{ 'Next'|t('tidytags') }}</a>
+            {% else %}
+                <span class="btn small disabled" aria-disabled="true">{{ 'Next'|t('tidytags') }}</span>
+            {% endif %}
+        </nav>
+    {% endif %}
+{% endmacro %}

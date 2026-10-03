@@ -76,9 +76,16 @@ class TitleMatcher extends Component
      */
     public function compareFuzzy(string $a, string $b, int $threshold): ?int
     {
-        $a = $this->normalize($a);
-        $b = $this->normalize($b);
+        return $this->compareFuzzyNormalized($this->normalize($a), $this->normalize($b), $threshold);
+    }
 
+    /**
+     * {@see compareFuzzy()} for titles that have already been through
+     * {@see normalize()}. Scans normalize each title once up front rather than
+     * once per comparison, which is most of the cost of a fuzzy scan.
+     */
+    public function compareFuzzyNormalized(string $a, string $b, int $threshold): ?int
+    {
         if ($a === $b) {
             return 0;
         }
@@ -118,6 +125,16 @@ class TitleMatcher extends Component
         return $keyA !== '' && $keyA === $this->coreKey($b)
             ? self::DISTANCE_AFFIX
             : null;
+    }
+
+    /**
+     * A key that two titles share exactly when {@see compareStrict()} matches
+     * them: the same qualifiers and the same core key. Scans group titles by
+     * this key instead of comparing every pair.
+     */
+    public function strictKey(string $title): string
+    {
+        return implode(' ', $this->qualifiers($title)) . "\0" . $this->coreKey($title);
     }
 
     /**

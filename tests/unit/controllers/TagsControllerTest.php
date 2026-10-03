@@ -5,6 +5,7 @@ namespace justinholtweb\tidytagstests\unit\controllers;
 use Craft;
 use craft\db\Query;
 use craft\elements\Tag;
+use craft\elements\User;
 use justinholtweb\tidytags\controllers\TagsController;
 use justinholtweb\tidytags\Plugin;
 use justinholtweb\tidytagstests\support\Fixtures;
@@ -16,11 +17,25 @@ use yii\web\ForbiddenHttpException;
  * Exercises the action methods directly with a prepared request, so the JSON
  * branches are covered without standing up CP routing or CSRF.
  *
- * The permission gate lives in beforeAction() and is covered separately via
- * runAction(), which is the only path that triggers it.
+ * The permission gates live in beforeAction() and are covered separately via
+ * runAction(), which is the only path that triggers them. Every test starts
+ * logged in as an admin, since merge and swap check the current user's rights
+ * over the elements they touch.
  */
 class TagsControllerTest extends PluginTestCase
 {
+    protected function _before(): void
+    {
+        parent::_before();
+        Fixtures::login(Fixtures::createUser('admin', true));
+    }
+
+    protected function _after(): void
+    {
+        Fixtures::login(null);
+        parent::_after();
+    }
+
     private function controller(): TagsController
     {
         return new TagsController('tags', Plugin::$plugin);
@@ -292,6 +307,26 @@ class TagsControllerTest extends PluginTestCase
         self::assertTrue($data['success']);
         self::assertCount(1, $data['usages']);
         self::assertSame('Article', $data['usages'][0]['title']);
+        self::assertFalse($data['hasMore']);
+    }
+
+    public function testUsagesFlagsWhenTheListIsCutOff(): void
+    {
+        $group = Fixtures::createTagGroup('animals');
+        $tag = Fixtures::createTag($group, 'Cat');
+        $tagsField = Fixtures::createTagsField('animalTags', $group->uid);
+        $section = Fixtures::createChannelSection('news', [$tagsField]);
+
+        for ($i = 0; $i <= TagsController::USAGES_LIMIT; $i++) {
+            $entry = Fixtures::createEntry($section, "Article $i");
+            Fixtures::relate($tagsField->id, $entry->id, $entry->siteId, $tag->id);
+        }
+
+        $this->prepareGetRequest(['elementId' => $tag->id]);
+        $data = $this->controller()->actionUsages()->data;
+
+        self::assertCount(TagsController::USAGES_LIMIT, $data['usages']);
+        self::assertTrue($data['hasMore']);
     }
 
     public function testUsagesRejectsMissingOrInvalidElementId(): void
@@ -310,9 +345,176 @@ class TagsControllerTest extends PluginTestCase
      */
     public function testActionsRequireThePluginPermission(): void
     {
+        Fixtures::login(null);
         $this->prepareGetRequest(['elementId' => 1]);
 
         $this->expectException(ForbiddenHttpException::class);
         $this->controller()->runAction('usages');
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: string[]}>
+     */
+    public static function mutationPermissionProvider(): array
+    {
+        return [
+            'rename with plugin access only' => ['rename', ['accessPlugin-tidytags']],
+            'swap with plugin access only' => ['swap', ['accessPlugin-tidytags']],
+            'delete with plugin access only' => ['delete', ['accessPlugin-tidytags']],
+            'delete with manage only' => ['delete', ['accessPlugin-tidytags', Plugin::PERMISSION_MANAGE_TAGS]],
+            'merge with manage only' => ['merge', ['accessPlugin-tidytags', Plugin::PERMISSION_MANAGE_TAGS]],
+            'merge with delete only' => ['merge', ['accessPlugin-tidytags', Plugin::PERMISSION_DELETE_TAGS]],
+        ];
+    }
+
+    /**
+     * Plugin access lets someone browse and scan, but every mutation needs its
+     * own permission.
+     *
+     * @dataProvider mutationPermissionProvider
+     * @param string[] $permissions
+     */
+    public function testMutationsRequireTheirPermission(string $action, array $permissions): void
+    {
+        $user = Fixtures::createUser('editor', false, $permissions);
+        self::assertTrue($user->can('accessPlugin-tidytags'), 'The user must clear the plugin-access gate.');
+        Fixtures::login($user);
+        $this->preparePostRequest(['tagId' => 1, 'tagIds' => [1], 'sourceIds' => [1], 'targetId' => 2, 'title' => 'x']);
+
+        $this->expectException(ForbiddenHttpException::class);
+        $this->controller()->runAction($action);
+    }
+
+    /**
+     * Builds a tag related from an entry in a section, and a user with every
+     * Tidy Tags permission but no rights in that section.
+     *
+     * @return array{0: \craft\elements\Tag, 1: \craft\elements\Tag, 2: \craft\elements\Entry, 3: User}
+     */
+    private function tagUsedInASectionTheUserCannotEdit(): array
+    {
+        $group = Fixtures::createTagGroup('animals');
+        $source = Fixtures::createTag($group, 'Cats');
+        $target = Fixtures::createTag($group, 'Cat');
+
+        $tagsField = Fixtures::createTagsField('animalTags', $group->uid);
+        $section = Fixtures::createChannelSection('news', [$tagsField]);
+        $entry = Fixtures::createEntry($section, 'Article');
+        Fixtures::relate($tagsField->id, $entry->id, $entry->siteId, $source->id);
+
+        $user = Fixtures::createUser('tagger', false, [
+            'accessPlugin-tidytags',
+            Plugin::PERMISSION_MANAGE_TAGS,
+            Plugin::PERMISSION_DELETE_TAGS,
+        ]);
+
+        return [$source, $target, $entry, $user];
+    }
+
+    /**
+     * Merging re-points the relations an entry holds, which edits that entry,
+     * so it needs save rights over the entry as well as the tag permissions.
+     */
+    public function testMergeIsForbiddenWhenTheUserCannotEditAnAffectedEntry(): void
+    {
+        [$source, $target, $entry, $user] = $this->tagUsedInASectionTheUserCannotEdit();
+        Fixtures::login($user);
+
+        $this->preparePostRequest(['sourceIds' => [$source->id], 'targetId' => $target->id]);
+
+        try {
+            $this->controller()->actionMerge();
+            self::fail('Expected a 403.');
+        } catch (ForbiddenHttpException) {
+        }
+
+        self::assertNotNull(Tag::find()->id($source->id)->status(null)->one());
+        $targetIds = (new Query())->select(['targetId'])->from(['{{%relations}}'])->where(['sourceId' => $entry->id])->column();
+        self::assertSame([$source->id], array_map('intval', $targetIds));
+    }
+
+    public function testSwapIsForbiddenWhenTheUserCannotEditAnAffectedEntry(): void
+    {
+        [$source, $target, , $user] = $this->tagUsedInASectionTheUserCannotEdit();
+        Fixtures::login($user);
+
+        $this->preparePostRequest(['sourceIds' => [$source->id], 'targetId' => $target->id]);
+
+        $this->expectException(ForbiddenHttpException::class);
+        $this->controller()->actionSwap();
+    }
+
+    /**
+     * A tag nobody uses has no owners to check, so tag permissions are enough.
+     */
+    public function testMergeOfUnusedTagsNeedsOnlyTagPermissions(): void
+    {
+        $group = Fixtures::createTagGroup('animals');
+        $source = Fixtures::createTag($group, 'Cats');
+        $target = Fixtures::createTag($group, 'Cat');
+
+        Fixtures::login(Fixtures::createUser('tagger', false, [
+            'accessPlugin-tidytags',
+            Plugin::PERMISSION_MANAGE_TAGS,
+            Plugin::PERMISSION_DELETE_TAGS,
+        ]));
+
+        $this->preparePostRequest(['sourceIds' => [$source->id], 'targetId' => $target->id]);
+
+        self::assertSame(['success' => true], $this->controller()->actionMerge()->data);
+    }
+
+    /**
+     * Swap must not become a general-purpose tool for re-pointing relations
+     * between arbitrary entries outside the plugin's configured sources.
+     */
+    public function testSwapRejectsElementsOutsideTidyTagsSources(): void
+    {
+        $section = Fixtures::createChannelSection('news');
+        $a = Fixtures::createEntry($section, 'First');
+        $b = Fixtures::createEntry($section, 'Second');
+
+        $this->preparePostRequest(['sourceIds' => [$a->id], 'targetId' => $b->id]);
+
+        $this->expectException(ForbiddenHttpException::class);
+        $this->controller()->actionSwap();
+    }
+
+    public function testSwapAllowsEntriesInConfiguredSections(): void
+    {
+        $section = Fixtures::createChannelSection('teams');
+        $this->setPluginSettings(['tagLikeSectionUids' => [$section->uid]]);
+        $a = Fixtures::createEntry($section, 'Arsenal FC');
+        $b = Fixtures::createEntry($section, 'Arsenal');
+
+        $this->preparePostRequest(['sourceIds' => [$a->id], 'targetId' => $b->id]);
+
+        self::assertSame(['success' => true], $this->controller()->actionSwap()->data);
+    }
+
+    public function testUsagesHidesElementsTheUserCannotView(): void
+    {
+        [$source, , , $user] = $this->tagUsedInASectionTheUserCannotEdit();
+        Fixtures::login($user);
+
+        $this->prepareGetRequest(['elementId' => $source->id]);
+
+        $data = $this->controller()->actionUsages()->data;
+
+        self::assertTrue($data['success']);
+        self::assertSame([], $data['usages']);
+    }
+
+    public function testUsagesIgnoresElementsOutsideTidyTagsSources(): void
+    {
+        $section = Fixtures::createChannelSection('news');
+        $entry = Fixtures::createEntry($section, 'Article');
+
+        $this->prepareGetRequest(['elementId' => $entry->id]);
+
+        self::assertSame(
+            ['success' => false, 'usages' => []],
+            $this->controller()->actionUsages()->data,
+        );
     }
 }
