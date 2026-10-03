@@ -1,86 +1,320 @@
-.tidytags-dashboard table {
-    width: 100%;
-    border-collapse: collapse;
-}
+/*
+ * Tidy Tags control panel styles.
+ *
+ * Colours come from Craft's CP custom properties so the screens follow light,
+ * dark and high-contrast themes. Fallbacks are only for CP versions that lack
+ * a given token.
+ */
 
-.tidytags-dashboard table th,
-.tidytags-dashboard table td {
-    padding: 8px 12px;
-    border-bottom: 1px solid #e5e9ec;
-    text-align: left;
+/* Shared ---------------------------------------------------------------- */
+
+.tidytags-badge {
+    display: inline-block;
+    margin-inline-start: var(--xs, 4px);
+    padding: 1px 6px;
+    border-radius: var(--radius-full, 999px);
+    font-size: 10px;
+    line-height: 1.6;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
     vertical-align: middle;
 }
 
-.tidytags-dashboard table th {
-    font-weight: 600;
-    background: #f8f9fb;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: #596673;
+.tidytags-badge--tag {
+    background: var(--blue-050, #eff6ff);
+    color: var(--blue-800, #1e40af);
 }
 
-.tidytags-dashboard .site-count {
+.tidytags-badge--entry {
+    background: var(--orange-050, #fff7ed);
+    color: var(--orange-800, #9a3412);
+}
+
+.tidytags-note {
+    color: var(--light-text-color, #606d7b);
+    font-size: 12px;
+}
+
+.tidytags-handle {
+    font-size: 11px;
+    color: var(--medium-text-color, #3f4d5a);
+}
+
+.tidytags-missing {
+    color: var(--light-text-color, #606d7b);
+}
+
+.tidytags-toolbar {
+    margin-bottom: var(--m, 16px);
+}
+
+.tidytags-toolbar .tidytags-note {
+    margin-top: var(--xs, 6px);
+}
+
+.tidytags-page-summary {
+    margin: 0 0 var(--s, 8px);
+}
+
+.tidytags-pagination {
+    margin-top: var(--m, 16px);
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.tidytags-pagination .btn.active {
+    background: var(--gray-500, #606d7b);
+    color: var(--white, #fff);
+}
+
+.tidytags-pagination .btn.disabled {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.tidytags-pagination-gap {
+    padding: 0 4px;
+    color: var(--light-text-color, #606d7b);
+}
+
+.tidytags-diff {
+    margin-inline-start: 4px;
+    color: var(--link-color, #2563eb);
+    font-size: 11px;
+}
+
+.tidytags-display {
+    margin: 2px 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: 11px;
+    color: var(--medium-text-color, #3f4d5a);
+}
+
+/* Dashboard ------------------------------------------------------------- */
+
+.tidytags-dashboard th[scope="row"] {
+    font-weight: normal;
+}
+
+.tidytags-count {
     display: inline-block;
     padding: 2px 8px;
-    background: #eef1f5;
-    border-radius: 10px;
+    border-radius: var(--radius-full, 999px);
+    background: var(--gray-050, #f3f7fc);
+    color: var(--text-color, #1f2937);
     font-size: 11px;
-    margin-right: 4px;
-    color: #33455c;
 }
 
-.tidytags-group table .tidytags-checkbox {
+/* Group (Manage) view --------------------------------------------------- */
+
+.tidytags-source-meta {
+    margin-bottom: var(--s, 12px);
+}
+
+.tidytags-source-meta .tidytags-badge {
+    margin-inline-start: 0;
+}
+
+.tidytags-group .tidytags-checkbox {
     width: 28px;
 }
 
 .tidytags-group .tidytags-actions {
     display: flex;
-    gap: 8px;
+    gap: var(--s, 8px);
     align-items: center;
-    margin-bottom: 16px;
-    padding: 12px;
-    background: #f8f9fb;
-    border-radius: 4px;
+    margin-bottom: var(--m, 16px);
+    padding: var(--s, 12px);
+    background: var(--gray-050, #f3f7fc);
+    border-radius: var(--radius-md, 4px);
 }
 
 .tidytags-group .tidytags-title-cell {
     font-weight: 500;
 }
 
-.tidytags-group .tidytags-site-titles {
-    font-size: 11px;
-    color: #596673;
-    margin-top: 2px;
+/* Duplicates ------------------------------------------------------------ */
+
+.tidytags-tabs {
+    display: flex;
+    margin-bottom: var(--m, 16px);
+    border-bottom: 1px solid var(--hairline-color, #e5e9ec);
 }
 
-.tidytags-duplicates .cluster {
-    margin-bottom: 20px;
-    padding: 16px;
-    border: 1px solid #e5e9ec;
-    border-radius: 4px;
-    background: #fff;
+.tidytags-tab {
+    padding: var(--s, 8px) 14px;
+    color: var(--medium-text-color, #3f4d5a);
+    border-bottom: 2px solid transparent;
+    text-decoration: none;
 }
 
-.tidytags-duplicates .cluster h3 {
-    margin: 0 0 10px 0;
-    font-size: 13px;
-    color: #596673;
+.tidytags-tab:hover {
+    color: var(--text-color, #1f2937);
+    text-decoration: none;
 }
 
-.tidytags-duplicates .cluster ul {
-    list-style: none;
+.tidytags-tab.is-active {
+    color: var(--link-color, #2563eb);
+    border-bottom-color: currentColor;
+    font-weight: 600;
+}
+
+.tidytags-cluster-heading {
+    display: flex;
+    align-items: center;
+    gap: var(--s, 8px);
+    margin: var(--l, 24px) 0 var(--s, 8px);
+}
+
+.tidytags-cluster-heading .tidytags-badge {
+    margin-inline-start: 0;
+}
+
+.tidytags-cluster {
+    margin-bottom: var(--s, 10px);
+    padding: var(--s, 10px) var(--m, 16px);
+    border: 1px solid var(--hairline-color, #e5e9ec);
+    border-radius: var(--radius-md, 4px);
+}
+
+.tidytags-cluster-items {
+    margin: 0;
     padding: 0;
+    list-style: none;
+}
+
+.tidytags-cluster-item {
+    display: flex;
+    gap: var(--m, 16px);
+    align-items: flex-start;
+    padding: var(--s, 8px) 0;
+}
+
+.tidytags-cluster-item + .tidytags-cluster-item {
+    border-top: 1px solid var(--hairline-color, #e5e9ec);
+}
+
+.tidytags-cluster-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex-shrink: 0;
+    min-width: 6em;
+}
+
+.tidytags-cluster-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--s, 8px);
+    margin-top: var(--s, 8px);
+}
+
+.tidytags-item-meta,
+.tidytags-usage-meta {
+    margin-inline-start: 6px;
+    color: var(--light-text-color, #606d7b);
+    font-size: 11px;
+}
+
+.tidytags-item-id {
+    color: var(--light-text-color, #606d7b);
+}
+
+.tidytags-usages {
+    margin-top: 4px;
+}
+
+.tidytags-usages-list {
+    margin-top: 6px;
+    font-size: 12px;
+}
+
+.tidytags-usages-list ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.tidytags-usages-list li {
+    padding: 2px 0;
+}
+
+/* Settings -------------------------------------------------------------- */
+
+.tidytags-callout {
+    margin: 0 0 var(--l, 20px);
+    padding: 10px 12px;
+    border-inline-start: 3px solid var(--gray-300, #cbd5e0);
+    background: var(--gray-050, #f3f7fc);
+    font-size: 12px;
+}
+
+.tidytags-callout p {
     margin: 0;
 }
 
-.tidytags-duplicates .cluster li {
-    padding: 6px 0;
-    display: flex;
-    align-items: center;
-    gap: 10px;
+.tidytags-callout p + p {
+    margin-top: 6px;
 }
 
+.tidytags-bullets {
+    margin-top: 0;
+}
+
+.tidytags-field-config {
+    margin-top: var(--s, 8px);
+}
+
+.tidytags-field-config th[scope="row"] {
+    width: 30%;
+    font-weight: normal;
+}
+
+.tidytags-display-fields .checkbox-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+}
+
+/* Editor "did you mean?" warning ---------------------------------------- */
+
 .tidytags-warning {
+    margin-top: 6px;
+    padding: 8px 10px;
+    border-inline-start: 3px solid var(--warning-border-color, var(--yellow-300, #fcd34d));
+    border-radius: var(--radius-sm, 3px);
+    background: var(--warning-background, var(--yellow-050, #fefce8));
+    color: var(--warning-color, var(--yellow-800, #854d0e));
     font-family: inherit;
+    font-size: 12px;
+}
+
+.tidytags-warning[hidden] {
+    display: none;
+}
+
+.tidytags-warning-heading {
+    margin-bottom: 4px;
+}
+
+.tidytags-warning-list {
+    margin: 0;
+    padding: 0 0 0 16px;
+    list-style: disc;
+}
+
+.tidytags-warning-list li {
+    padding: 2px 0;
+}
+
+.tidytags-warning-meta {
+    margin-inline-start: 6px;
+    font-size: 11px;
+    opacity: 0.85;
+}
+
+.tidytags-warning .tidytags-display {
+    margin-inline-start: 16px;
+    color: inherit;
 }

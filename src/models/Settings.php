@@ -89,6 +89,17 @@ class Settings extends Model
      */
     public array $sourceFieldConfig = [];
 
+    /**
+     * How many items the Manage screen shows per page. Sources can run to tens
+     * of thousands of items, so the screen never loads a whole source at once.
+     */
+    public int $pageSize = 100;
+
+    /**
+     * How many duplicate clusters the Duplicates screen shows per page.
+     */
+    public int $duplicatesPageSize = 25;
+
     public function rules(): array
     {
         return [
@@ -104,6 +115,8 @@ class Settings extends Model
                 'range' => [TitleMatcher::STRATEGY_FUZZY, TitleMatcher::STRATEGY_STRICT],
             ],
             [['sourceFieldConfig'], 'safe'],
+            [['pageSize'], 'integer', 'min' => 1, 'max' => 1000],
+            [['duplicatesPageSize'], 'integer', 'min' => 1, 'max' => 500],
         ];
     }
 

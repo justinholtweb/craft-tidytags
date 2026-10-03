@@ -4,8 +4,10 @@ namespace justinholtweb\tidytags\services;
 
 use Craft;
 use craft\base\Component;
+use craft\base\ElementInterface;
 use craft\db\Query;
 use craft\elements\Tag;
+use craft\elements\User;
 use Throwable;
 
 /**
@@ -117,7 +119,7 @@ class Tags extends Component
         $transaction = $db->beginTransaction();
 
         try {
-            $this->_repointRelations($sourceIds, $targetId);
+            $affectedTypes = $this->_repointRelations($sourceIds, $targetId);
 
             foreach ($sourceIds as $id) {
                 $tag = Tag::find()->id($id)->status(null)->one();
@@ -127,6 +129,7 @@ class Tags extends Component
             }
 
             $transaction->commit();
+            $this->_invalidateCaches($affectedTypes, $target);
             return true;
         } catch (Throwable $e) {
             $transaction->rollBack();
@@ -162,14 +165,82 @@ class Tags extends Component
         $transaction = $db->beginTransaction();
 
         try {
-            $this->_repointRelations($sourceIds, $targetId);
+            $affectedTypes = $this->_repointRelations($sourceIds, $targetId);
             $transaction->commit();
+            $this->_invalidateCaches($affectedTypes, $target);
             return true;
         } catch (Throwable $e) {
             $transaction->rollBack();
             Craft::error('Tidy Tags swap failed: ' . $e->getMessage(), __METHOD__);
             return false;
         }
+    }
+
+    /**
+     * Whether $user may save every element whose relations a merge or swap of
+     * $sourceIds would rewrite — the entries, assets, users and so on that
+     * hold a relational field pointing at one of the sources.
+     *
+     * Re-pointing a relation edits the element that owns it, so this is the
+     * check that stops a merge or swap from changing content in a section the
+     * user can't edit. Revisions are checked against their canonical element,
+     * since nobody can save a revision directly.
+     *
+     * @param int[] $sourceIds
+     */
+    public function canRepointRelations(array $sourceIds, User $user): bool
+    {
+        $sourceIds = array_values(array_filter(array_map(fn($id) => (int)$id, $sourceIds)));
+        if (empty($sourceIds)) {
+            return true;
+        }
+
+        $rows = (new Query())
+            ->select(['r.sourceId', 'r.sourceSiteId', 'e.type'])
+            ->distinct()
+            ->from(['r' => '{{%relations}}'])
+            ->innerJoin(['e' => '{{%elements}}'], '[[e.id]] = [[r.sourceId]]')
+            ->where(['r.targetId' => $sourceIds])
+            ->all();
+
+        // Group owner IDs by element type and site so each group loads in one
+        // query. Relations from non-localized fields carry no site; any site
+        // the owner exists in will do for an authorization check.
+        $groups = [];
+        foreach ($rows as $row) {
+            $site = $row['sourceSiteId'] !== null ? (int)$row['sourceSiteId'] : '*';
+            $groups[$row['type']][$site][] = (int)$row['sourceId'];
+        }
+
+        $elementsService = Craft::$app->getElements();
+
+        foreach ($groups as $type => $bySite) {
+            if (!is_subclass_of($type, ElementInterface::class)) {
+                return false;
+            }
+            foreach ($bySite as $site => $ids) {
+                foreach (array_chunk(array_unique($ids), 100) as $chunk) {
+                    $query = $type::find()
+                        ->id($chunk)
+                        ->status(null)
+                        ->drafts(null)
+                        ->provisionalDrafts(null)
+                        ->revisions(null);
+                    $site === '*' ? $query->site('*')->unique() : $query->siteId($site);
+
+                    foreach ($query->all() as $owner) {
+                        $allowed = $owner->getIsRevision()
+                            ? $elementsService->canSaveCanonical($owner, $user)
+                            : $elementsService->canSave($owner, $user);
+                        if (!$allowed) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -191,9 +262,13 @@ class Tags extends Component
      * point at $targetId instead, deleting any that would become duplicates of
      * an existing target relation.
      *
+     * Returns the element types whose cached output may now be stale: the
+     * owners of every rewritten relation, plus the sources themselves.
+     *
      * @param int[] $sourceIds
+     * @return string[]
      */
-    private function _repointRelations(array $sourceIds, int $targetId): void
+    private function _repointRelations(array $sourceIds, int $targetId): array
     {
         $db = Craft::$app->getDb();
 
@@ -202,6 +277,14 @@ class Tags extends Component
             ->from(['{{%relations}}'])
             ->where(['targetId' => $sourceIds])
             ->all();
+
+        $affectedIds = array_merge($sourceIds, array_map(fn($r) => (int)$r['sourceId'], $relations));
+        $affectedTypes = (new Query())
+            ->select(['type'])
+            ->distinct()
+            ->from(['{{%elements}}'])
+            ->where(['id' => array_values(array_unique($affectedIds))])
+            ->column();
 
         $existing = (new Query())
             ->select(['fieldId', 'sourceId', 'sourceSiteId'])
@@ -237,5 +320,22 @@ class Tags extends Component
                 ->update('{{%relations}}', ['targetId' => $targetId], ['id' => $toUpdate])
                 ->execute();
         }
+
+        return $affectedTypes;
+    }
+
+    /**
+     * Clears template and element caches after relations were rewritten with
+     * raw SQL, which bypasses the element saves that would normally do it.
+     *
+     * @param string[] $elementTypes
+     */
+    private function _invalidateCaches(array $elementTypes, ElementInterface $target): void
+    {
+        $elementsService = Craft::$app->getElements();
+        foreach ($elementTypes as $type) {
+            $elementsService->invalidateCachesForElementType($type);
+        }
+        $elementsService->invalidateCachesForElement($target);
     }
 }

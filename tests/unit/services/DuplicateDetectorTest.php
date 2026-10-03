@@ -457,4 +457,135 @@ class DuplicateDetectorTest extends PluginTestCase
         sort($sourceTypes);
         self::assertSame([Source::TYPE_ENTRY, Source::TYPE_TAG], $sourceTypes);
     }
+
+    /**
+     * Builds two tag groups holding three and two clusters respectively.
+     *
+     * @return array{0: Source, 1: Source}
+     */
+    private function twoGroupsOfClusters(): array
+    {
+        $animals = Fixtures::createTagGroup('animals');
+        foreach (['Cat', 'Cats', 'Dog', 'Dogs', 'Horse', 'Horses'] as $title) {
+            Fixtures::createTag($animals, $title);
+        }
+        $plants = Fixtures::createTagGroup('plants');
+        foreach (['Fern', 'Ferns', 'Moss', 'Mosses'] as $title) {
+            Fixtures::createTag($plants, $title);
+        }
+
+        return [$this->sources()->getTagSource($animals->id), $this->sources()->getTagSource($plants->id)];
+    }
+
+    public function testDuplicatesPagePagesAcrossSourcesInSourceOrder(): void
+    {
+        [$animals, $plants] = $this->twoGroupsOfClusters();
+        $this->setPluginSettings(['matchStrategy' => TitleMatcher::STRATEGY_FUZZY]);
+
+        $sourceNames = function(array $page) {
+            return array_map(fn(array $c) => $c['source']->uid, $page['clusters']);
+        };
+
+        $first = $this->detector()->getDuplicatesPage('within', null, 2, 1, 2);
+        self::assertSame(5, $first['total']);
+        self::assertSame(3, $first['totalPages']);
+        self::assertSame([1, 2], [$first['first'], $first['last']]);
+        self::assertSame([$animals->uid, $animals->uid], $sourceNames($first));
+
+        $second = $this->detector()->getDuplicatesPage('within', null, 2, 2, 2);
+        self::assertSame([$animals->uid, $plants->uid], $sourceNames($second));
+
+        $last = $this->detector()->getDuplicatesPage('within', null, 2, 3, 2);
+        self::assertSame([$plants->uid], $sourceNames($last));
+        self::assertSame(['Moss', 'Mosses'], $this->titles($last['clusters'][0]['items']));
+        self::assertArrayHasKey('cpEditUrl', $last['clusters'][0]['items'][0], 'Page items are enriched.');
+    }
+
+    public function testDuplicatesPageClampsOutOfRangePages(): void
+    {
+        $this->twoGroupsOfClusters();
+
+        self::assertSame(3, $this->detector()->getDuplicatesPage('within', null, 2, 99, 2)['page']);
+        self::assertSame(1, $this->detector()->getDuplicatesPage('within', null, 2, -4, 2)['page']);
+    }
+
+    public function testDuplicatesPageHandlesNoClusters(): void
+    {
+        $group = Fixtures::createTagGroup('animals');
+        Fixtures::createTag($group, 'Cat');
+
+        $page = $this->detector()->getDuplicatesPage('within', null, 2, 1, 25);
+
+        self::assertSame(0, $page['total']);
+        self::assertSame(1, $page['totalPages']);
+        self::assertSame([], $page['clusters']);
+    }
+
+    public function testDuplicatesPageCrossScopeHasNoSourcePerCluster(): void
+    {
+        $group = Fixtures::createTagGroup('teams');
+        Fixtures::createTag($group, 'Arsenal');
+        $section = Fixtures::createChannelSection('clubs');
+        $this->setPluginSettings(['tagLikeSectionUids' => [$section->uid]]);
+        Fixtures::createEntry($section, 'Arsenal');
+
+        $page = $this->detector()->getDuplicatesPage('cross', null, 2, 1, 25);
+
+        self::assertSame(1, $page['total']);
+        self::assertNull($page['clusters'][0]['source']);
+        self::assertCount(2, $page['clusters'][0]['items']);
+    }
+
+    /**
+     * Scans are cached, so a change to a title must invalidate the cache
+     * rather than leave a fixed duplicate on screen.
+     */
+    public function testCachedScanIsInvalidatedWhenATagChanges(): void
+    {
+        $group = Fixtures::createTagGroup('animals');
+        Fixtures::createTag($group, 'Cat');
+        $typo = Fixtures::createTag($group, 'Cats');
+        $source = $this->sources()->getTagSource($group->id);
+
+        self::assertCount(1, $this->detector()->findDuplicates($source));
+
+        $typo->title = 'Giraffe';
+        Craft::$app->getElements()->saveElement($typo);
+
+        self::assertSame([], $this->detector()->findDuplicates($source));
+    }
+
+    public function testCachedScanIsInvalidatedWhenATagIsAdded(): void
+    {
+        $group = Fixtures::createTagGroup('animals');
+        Fixtures::createTag($group, 'Cat');
+        $source = $this->sources()->getTagSource($group->id);
+
+        self::assertSame([], $this->detector()->findDuplicates($source));
+
+        Fixtures::createTag($group, 'Cats');
+
+        self::assertCount(1, $this->detector()->findDuplicates($source));
+    }
+
+    /**
+     * Strategy and token lists are part of the cache key, so changing the
+     * settings takes effect on the next scan.
+     */
+    public function testCachedScanFollowsMatchSettings(): void
+    {
+        $group = Fixtures::createTagGroup('teams');
+        Fixtures::createTag($group, 'Bayern Munich');
+        Fixtures::createTag($group, 'FC Bayern Munich');
+        $source = $this->sources()->getTagSource($group->id);
+
+        $this->setPluginSettings(['matchStrategy' => TitleMatcher::STRATEGY_FUZZY]);
+        self::assertSame([], $this->detector()->findDuplicates($source));
+
+        $this->setPluginSettings(['matchStrategy' => TitleMatcher::STRATEGY_STRICT]);
+        self::assertCount(1, $this->detector()->findDuplicates($source));
+
+        $this->setPluginSettings(['matchStrategy' => TitleMatcher::STRATEGY_STRICT, 'affixTokens' => []]);
+        self::assertSame([], $this->detector()->findDuplicates($source));
+    }
 }

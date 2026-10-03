@@ -53,7 +53,14 @@ class DashboardController extends Controller
     }
 
     /**
-     * Renders the duplicate-scanner view with clusters for every source.
+     * The largest similarity threshold the scanner accepts. Beyond this almost
+     * every short title matches every other, which is noise, not duplicates.
+     */
+    public const MAX_THRESHOLD = 6;
+
+    /**
+     * Renders one page of duplicate clusters, within each source or across
+     * sources. Only the clusters on the page are loaded as elements.
      */
     public function actionDuplicates(): Response
     {
@@ -64,25 +71,32 @@ class DashboardController extends Controller
         $siteId = ($siteIdParam !== null && $siteIdParam !== '') ? (int)$siteIdParam : null;
 
         $thresholdParam = $request->getQueryParam('threshold');
-        $threshold = ($thresholdParam !== null && $thresholdParam !== '') ? (int)$thresholdParam : null;
+        $threshold = ($thresholdParam !== null && $thresholdParam !== '')
+            ? min(max(0, (int)$thresholdParam), self::MAX_THRESHOLD)
+            : $plugin->duplicateDetector->defaultThreshold;
 
-        $scope = $request->getQueryParam('scope', 'within');
+        $scope = $request->getQueryParam('scope') === 'cross' ? 'cross' : 'within';
 
-        if ($scope === 'cross') {
-            $crossClusters = $plugin->duplicateDetector->findCrossSourceDuplicates($siteId, $threshold);
-            $results = [];
-        } else {
-            $results = $plugin->duplicateDetector->findAllDuplicates($siteId, $threshold);
-            $crossClusters = [];
-        }
+        $result = $plugin->duplicateDetector->getDuplicatesPage(
+            $scope,
+            $siteId,
+            $threshold,
+            (int)$request->getQueryParam('page', 1),
+            $plugin->getSettings()->duplicatesPageSize,
+        );
+
+        $user = static::currentUser();
 
         return $this->renderTemplate('tidytags/duplicates', [
-            'results' => $results,
-            'crossClusters' => $crossClusters,
-            'scope' => $scope === 'cross' ? 'cross' : 'within',
+            'clusters' => $result['clusters'],
+            'pagination' => $result,
+            'scope' => $scope,
             'sites' => Craft::$app->getSites()->getAllSites(),
             'selectedSiteId' => $siteId,
-            'threshold' => $threshold ?? $plugin->duplicateDetector->defaultThreshold,
+            'threshold' => $threshold,
+            'maxThreshold' => self::MAX_THRESHOLD,
+            'canManage' => $user?->can(Plugin::PERMISSION_MANAGE_TAGS) ?? false,
+            'canDelete' => $user?->can(Plugin::PERMISSION_DELETE_TAGS) ?? false,
             'selectedSubnavItem' => 'duplicates',
         ]);
     }

@@ -51,9 +51,8 @@
     }
     var el = document.createElement('div');
     el.className = 'tidytags-warning';
-    el.style.cssText =
-      'display:none;margin-top:6px;padding:8px 10px;border-left:3px solid #e5a50a;' +
-      'background:#fff8e1;border-radius:3px;font-size:12px;color:#594500;';
+    el.hidden = true;
+    el.setAttribute('role', 'status');
     $warning = $(el);
     $input.after($warning);
     $input.data('tidytagsWarning', $warning);
@@ -66,7 +65,6 @@
 
   function renderMatch(match) {
     var li = document.createElement('li');
-    li.style.cssText = 'padding:2px 0;';
 
     var titleNode;
     if (match.cpEditUrl) {
@@ -84,13 +82,13 @@
 
     if (match.differentiator) {
       var diff = document.createElement('span');
-      diff.style.cssText = 'color:#0b5394;margin-left:4px;';
+      diff.className = 'tidytags-diff';
       diff.textContent = '(' + match.differentiator + ')';
       li.appendChild(diff);
     }
 
     var meta = document.createElement('span');
-    meta.style.cssText = 'color:#8a6e00;margin-left:6px;font-size:11px;';
+    meta.className = 'tidytags-warning-meta';
     var typeLabel = match.sourceType === 'tag' ? 'Tag' : 'Entry';
     meta.appendChild(
       document.createTextNode(' · ' + typeLabel + ' in ' + (match.sourceName || ''))
@@ -101,8 +99,7 @@
       var keys = Object.keys(match.displayValues);
       if (keys.length) {
         var ul = document.createElement('ul');
-        ul.style.cssText =
-          'margin:2px 0 0 16px;padding:0;list-style:none;color:#594500;font-size:11px;';
+        ul.className = 'tidytags-display';
         keys.forEach(function (k) {
           var item = document.createElement('li');
           var b = document.createElement('strong');
@@ -123,7 +120,7 @@
     if (!node) return;
 
     if (!matches || !matches.length) {
-      node.style.display = 'none';
+      node.hidden = true;
       clearChildren(node);
       return;
     }
@@ -131,7 +128,7 @@
     clearChildren(node);
 
     var heading = document.createElement('div');
-    heading.style.cssText = 'margin-bottom:4px;';
+    heading.className = 'tidytags-warning-heading';
     heading.appendChild(
       document.createTextNode(
         'Already exists — consider reusing one of these instead of creating a new tag:'
@@ -140,13 +137,13 @@
     node.appendChild(heading);
 
     var list = document.createElement('ul');
-    list.style.cssText = 'margin:0;padding:0 0 0 16px;list-style:disc;';
+    list.className = 'tidytags-warning-list';
     matches.forEach(function (m) {
       list.appendChild(renderMatch(m));
     });
     node.appendChild(list);
 
-    node.style.display = 'block';
+    node.hidden = false;
   }
 
   var checkTitle = debounce(function ($input, groupId, siteId) {
@@ -194,7 +191,7 @@
     $input.on('blur.tidytags', function () {
       setTimeout(function () {
         var $warning = $input.data('tidytagsWarning');
-        if ($warning) $warning.fadeOut(300);
+        if ($warning && $warning.length) $warning.get(0).hidden = true;
       }, 200);
     });
   }

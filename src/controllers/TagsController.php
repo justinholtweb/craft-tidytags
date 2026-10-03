@@ -6,6 +6,7 @@ use Craft;
 use craft\web\Controller;
 use justinholtweb\tidytags\Plugin;
 use yii\web\BadRequestHttpException;
+use yii\web\ForbiddenHttpException;
 use yii\web\Response;
 
 /**
@@ -19,10 +20,14 @@ use yii\web\Response;
  * — the record won't be found and the action no-ops.
  *
  * The exceptions are:
- * - {@see actionUsages()} reads relations against any element ID.
- * - {@see actionSwap()} re-points relations from any element to any other
- *   element without deleting either side, so it's safe to call across
+ * - {@see actionUsages()} reads relations against any Tidy Tags source element.
+ * - {@see actionSwap()} re-points relations between any two Tidy Tags source
+ *   elements without deleting either side, so it's safe to call across
  *   element types.
+ *
+ * Plugin access alone only allows the read-only lookups. Mutations need the
+ * permissions registered in {@see Plugin::_registerPermissions()}, and merge and
+ * swap also need save rights on every element whose relations they rewrite.
  */
 class TagsController extends Controller
 {
@@ -32,11 +37,28 @@ class TagsController extends Controller
     protected array|bool|int $allowAnonymous = false;
 
     /**
+     * The most usages the usage lookup returns. A heavily used tag can have
+     * thousands; the list is a preview, not a report.
+     */
+    public const USAGES_LIMIT = 200;
+
+    /**
      * @inheritdoc
      */
     public function beforeAction($action): bool
     {
         $this->requirePermission('accessPlugin-tidytags');
+
+        $required = match ($action->id) {
+            'rename', 'swap' => [Plugin::PERMISSION_MANAGE_TAGS],
+            'delete' => [Plugin::PERMISSION_DELETE_TAGS],
+            'merge' => [Plugin::PERMISSION_MANAGE_TAGS, Plugin::PERMISSION_DELETE_TAGS],
+            default => [],
+        };
+        foreach ($required as $permission) {
+            $this->requirePermission($permission);
+        }
+
         return parent::beforeAction($action);
     }
 
@@ -109,6 +131,8 @@ class TagsController extends Controller
             throw new BadRequestHttpException('sourceIds must be an array.');
         }
 
+        $this->_requireCanRepoint($sourceIds);
+
         $ok = Plugin::$plugin->tags->mergeTags($sourceIds, $targetId);
 
         if ($request->getAcceptsJson()) {
@@ -162,11 +186,18 @@ class TagsController extends Controller
             return $this->asJson(['success' => false, 'usages' => []]);
         }
 
-        $usages = Plugin::$plugin->sources->getUsages($elementId);
+        $element = Craft::$app->getElements()->getElementById($elementId);
+        if ($element === null || !Plugin::$plugin->sources->isSourceElement($element)) {
+            return $this->asJson(['success' => false, 'usages' => []]);
+        }
+
+        // Ask for one more than is shown, so the UI can say the list is cut off.
+        $usages = Plugin::$plugin->sources->getUsages($elementId, self::USAGES_LIMIT + 1, static::currentUser());
 
         return $this->asJson([
             'success' => true,
-            'usages' => $usages,
+            'usages' => array_slice($usages, 0, self::USAGES_LIMIT),
+            'hasMore' => count($usages) > self::USAGES_LIMIT,
         ]);
     }
 
@@ -186,11 +217,22 @@ class TagsController extends Controller
         if (!is_array($sourceIds)) {
             throw new BadRequestHttpException('sourceIds must be an array.');
         }
+        $sourceIds = array_map(fn($id) => (int)$id, $sourceIds);
 
-        $ok = Plugin::$plugin->tags->swapRelations(
-            array_map(fn($id) => (int)$id, $sourceIds),
-            $targetId,
-        );
+        // Swap is the one mutation that accepts any element type, so keep it to
+        // elements Tidy Tags manages rather than letting it re-point relations
+        // between arbitrary entries, assets or users.
+        $elementsService = Craft::$app->getElements();
+        foreach (array_unique([...$sourceIds, $targetId]) as $id) {
+            $element = $elementsService->getElementById($id);
+            if ($element !== null && !Plugin::$plugin->sources->isSourceElement($element)) {
+                throw new ForbiddenHttpException('Swap only works between Tidy Tags source elements.');
+            }
+        }
+
+        $this->_requireCanRepoint($sourceIds);
+
+        $ok = Plugin::$plugin->tags->swapRelations($sourceIds, $targetId);
 
         if ($request->getAcceptsJson()) {
             return $this->asJson(['success' => $ok]);
@@ -202,5 +244,20 @@ class TagsController extends Controller
             Craft::$app->getSession()->setError('Swap failed.');
         }
         return $this->redirectToPostedUrl();
+    }
+
+    /**
+     * Throws a 403 unless the current user can save every element whose
+     * relations a merge or swap of $sourceIds would rewrite.
+     *
+     * @param array<int|string> $sourceIds
+     * @throws ForbiddenHttpException
+     */
+    private function _requireCanRepoint(array $sourceIds): void
+    {
+        $user = static::currentUser();
+        if ($user === null || !Plugin::$plugin->tags->canRepointRelations($sourceIds, $user)) {
+            throw new ForbiddenHttpException('You can\'t edit every element that uses these items.');
+        }
     }
 }

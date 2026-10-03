@@ -3,7 +3,7 @@
     "description": "Tag manager for Craft CMS 5 with multi-site support and duplicate detection.",
     "type": "craft-plugin",
     "license": "proprietary",
-    "version": "5.2.0",
+    "version": "5.3.0",
     "keywords": [
         "craftcms",
         "tags",

@@ -164,6 +164,72 @@ class SourcesTest extends PluginTestCase
         self::assertSame(['Chat'], array_values($rows[0]['titles']));
     }
 
+    /**
+     * The Manage screen must be able to page through a source without loading
+     * all of it: a 17,000-tag group exhausted memory before 5.3.0.
+     */
+    public function testGetElementsInSourcePagesInTitleOrder(): void
+    {
+        $group = Fixtures::createTagGroup('animals');
+        foreach (['Eel', 'Bat', 'Dog', 'Ant', 'Cat'] as $title) {
+            Fixtures::createTag($group, $title);
+        }
+        $source = $this->sources()->getTagSource($group->id);
+
+        $page = fn(int $limit, int $offset) => array_map(
+            fn(array $row) => $row['element']->title,
+            $this->sources()->getElementsInSource($source, null, null, $limit, $offset),
+        );
+
+        self::assertSame(['Ant', 'Bat'], $page(2, 0));
+        self::assertSame(['Cat', 'Dog'], $page(2, 2));
+        self::assertSame(['Eel'], $page(2, 4));
+        self::assertSame([], $page(2, 6));
+    }
+
+    public function testGetElementsInSourcePagesWithinASite(): void
+    {
+        $second = Fixtures::createSite('secondary', 'Secondary');
+        $group = Fixtures::createTagGroup('animals');
+        foreach (['Bat', 'Ant', 'Cat'] as $title) {
+            Fixtures::createTag($group, $title);
+        }
+        $source = $this->sources()->getTagSource($group->id);
+
+        $rows = $this->sources()->getElementsInSource($source, $second->id, null, 2, 1);
+
+        self::assertSame(['Bat', 'Cat'], array_map(fn(array $row) => $row['element']->title, $rows));
+    }
+
+    public function testCountElementsInSource(): void
+    {
+        $second = Fixtures::createSite('secondary', 'Secondary');
+        $group = Fixtures::createTagGroup('animals');
+        Fixtures::createTag($group, 'Ant');
+        Fixtures::createTag($group, 'Bat');
+        $other = Fixtures::createTagGroup('plants');
+        Fixtures::createTag($other, 'Fern');
+
+        $source = $this->sources()->getTagSource($group->id);
+
+        self::assertSame(2, $this->sources()->countElementsInSource($source));
+        self::assertSame(2, $this->sources()->countElementsInSource($source, $second->id));
+    }
+
+    public function testIsSourceElement(): void
+    {
+        $group = Fixtures::createTagGroup('animals');
+        $tag = Fixtures::createTag($group, 'Cat');
+
+        $configured = Fixtures::createChannelSection('teams');
+        $unconfigured = Fixtures::createChannelSection('news');
+        $this->setPluginSettings(['tagLikeSectionUids' => [$configured->uid]]);
+
+        self::assertTrue($this->sources()->isSourceElement($tag));
+        self::assertTrue($this->sources()->isSourceElement(Fixtures::createEntry($configured, 'Arsenal')));
+        self::assertFalse($this->sources()->isSourceElement(Fixtures::createEntry($unconfigured, 'Article')));
+    }
+
     public function testGetAvailableFieldsForTagGroupAndSection(): void
     {
         $sport = Fixtures::createPlainTextField('sport');

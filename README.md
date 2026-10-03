@@ -54,11 +54,12 @@ Click **Manage** on a row to open that source's list. "Sources" includes every n
 The group view shows every tag in a group with per-site columns so you can see where a tag is translated and where it isn't. From here you can:
 
 - **Filter** by site or search by title
+- **Page** through large groups — the view loads `pageSize` items at a time (100 by default), so a group with tens of thousands of tags opens as quickly as a small one
 - **Rename** a single tag (all sites or one site)
 - **Merge** two or more tags — relations are re-pointed to the target tag, duplicates are de-duped, and source tags are deleted in a single transaction
 - **Delete** one or more tags in bulk
 
-All actions are multi-site aware. Choosing "All sites" in the filter shows every tag once (keyed to the primary site) with its translations in sibling columns; choosing a specific site scopes everything to that site.
+Rename, merge, and delete each need their own permission; see [Permissions](#permissions). All actions are multi-site aware. Choosing "All sites" in the filter shows every tag once (keyed to the primary site) with its translations in sibling columns; choosing a specific site scopes everything to that site.
 
 ### Matching strategies
 
@@ -119,9 +120,15 @@ Each cluster item:
 - Links to its tag/entry edit screen
 - Shows the source it came from with a **Tag** or **Entry** badge
 - Shows configured display field values (e.g. `sport: Football`) so you can tell same-named items apart
-- Has a **Show usages** button that lists every entry holding a relation to it, with edit links
+- Has a **Show usages** button that lists every entry holding a relation to it, with edit links (the first 200)
 
-Under the `fuzzy` strategy the Levenshtein threshold is configurable per-scan (default 2, range 1–6). The `strict` strategy has no distance to threshold, so the control has no effect there.
+Clusters are paged, `duplicatesPageSize` per page (25 by default), and only the clusters on the current page are loaded as elements.
+
+Under the `fuzzy` strategy the Levenshtein threshold is configurable per-scan (default 2, range 0–6). The `strict` strategy has no distance to threshold, so the control has no effect there.
+
+#### Large vocabularies
+
+Scans are built for sources with tens of thousands of items. They work on IDs and titles rather than loaded elements, and look up likely matches through an index instead of comparing every title with every other. The results are identical to a full pairwise comparison, and a 17,000-title source clusters in well under a second. Results are cached and rebuilt automatically when a tag or entry is saved or deleted, or when the match settings change.
 
 #### Differentiator and display fields
 
@@ -170,6 +177,12 @@ return [
     // 'fuzzy' (default) or 'strict' — see Matching strategies above.
     'matchStrategy' => 'strict',
 
+    // Items per page on the group (Manage) view. 1–1000, default 100.
+    'pageSize' => 250,
+
+    // Clusters per page on the Duplicates screen. 1–500, default 25.
+    'duplicatesPageSize' => 50,
+
     // Only used by the strict strategy. Arrays here, or a newline/comma
     // separated string, or leave them out to keep the defaults.
     'affixTokens'     => ['fc', 'afc', 'cf', 'sc', 'ac'],
@@ -196,7 +209,17 @@ Use section UIDs (not IDs or handles) so the config is stable across environment
 
 ## Permissions
 
-Tidy Tags uses Craft's default plugin access permission: `accessPlugin-tidytags`. Grant it to any user group that should be able to view or manage tags through the dashboard.
+| Permission | Allows |
+| --- | --- |
+| `accessPlugin-tidytags` | Browsing sources, the Duplicates scanner, and the usage lookups |
+| `tidytags-manageTags` | Renaming tags and swapping relations |
+| `tidytags-deleteTags` | Deleting tags (nested under *manage*) |
+
+Merging needs both *manage* and *delete*, since it deletes the merged tags.
+
+Merge and swap also edit every element that holds a relation to the tags involved, so they check that the user can save each of those elements. Someone who can't edit entries in a section can't merge or swap tags that those entries use. Swap only accepts tags and entries in configured tag-like sections, and the usage lookup leaves out elements the user can't view.
+
+Admins have every permission. Before 5.3.0, plugin access was enough for every action, so grant the new permissions to any non-admin group that should keep renaming, merging, or deleting.
 
 ## How merging works
 
@@ -219,17 +242,11 @@ This preserves every entry's relationship to the merged tag while cleaning up re
 
 After a swap, the source entries are orphaned (no relations point at them) but still present. Delete them through Craft's normal entry UI once you're satisfied.
 
-After large merges or swaps you may want to run:
-
-```sh
-php craft clear-caches/all
-```
-
-to refresh Craft's element and template caches.
+Merge and swap rewrite `{{%relations}}` directly, so afterwards they invalidate element and template caches for every element type they touched.
 
 ## Configuration
 
-Plugin-wide settings (match strategy, affix and qualifier tokens, tag-like sections, and per-source field config) live on the **Settings → Plugins → Tidy Tags** screen and can be overlaid from `config/tidytags.php`; see [Configuration file](#configuration-file) above. The duplicate similarity threshold is a query parameter on the Duplicates page (`?threshold=N`), and the "did you mean" endpoint accepts `title`, `groupId`, and `siteId` parameters if you want to call it from your own code.
+Plugin-wide settings (match strategy, affix and qualifier tokens, tag-like sections, per-source field config, and page sizes) live on the **Settings → Plugins → Tidy Tags** screen and can be overlaid from `config/tidytags.php`; see [Configuration file](#configuration-file) above. The duplicate similarity threshold is a query parameter on the Duplicates page (`?threshold=N`), and the "did you mean" endpoint accepts `title`, `groupId`, and `siteId` parameters if you want to call it from your own code.
 
 ## Action endpoints
 
@@ -242,7 +259,7 @@ Plugin-wide settings (match strategy, affix and qualifier tokens, tag-like secti
 | `tidytags/tags/merge` | POST | `targetId`, `sourceIds[]` |
 | `tidytags/tags/swap` | POST | `targetId`, `sourceIds[]` |
 
-All mutating endpoints require the `accessPlugin-tidytags` permission and a CSRF token.
+Every endpoint requires `accessPlugin-tidytags`. The mutating endpoints also need a CSRF token and the permissions listed under [Permissions](#permissions).
 
 ## Development
 

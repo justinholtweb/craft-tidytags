@@ -4,11 +4,13 @@ namespace justinholtweb\tidytags\services;
 
 use Craft;
 use craft\base\Component;
+use craft\base\ElementInterface;
 use craft\base\FieldInterface;
 use craft\db\Query;
 use craft\elements\db\ElementQueryInterface;
 use craft\elements\Entry;
 use craft\elements\Tag;
+use craft\elements\User;
 use craft\models\Section;
 use justinholtweb\tidytags\models\Source;
 use justinholtweb\tidytags\Plugin;
@@ -121,21 +123,25 @@ class Sources extends Component
      * When $siteId is null, one row per element keyed to the primary site with
      * per-site titles alongside. Otherwise rows are scoped to the given site.
      *
+     * Pass $limit (and $offset) to fetch a single page. Per-site titles are only
+     * looked up for the elements on that page, so memory stays flat however
+     * large the source is.
+     *
      * @return array<int, array{element: \craft\base\ElementInterface, titles: array<int, string>}>
      */
-    public function getElementsInSource(Source $source, ?int $siteId = null, ?string $search = null): array
-    {
-        $sites = Craft::$app->getSites()->getAllSites();
+    public function getElementsInSource(
+        Source $source,
+        ?int $siteId = null,
+        ?string $search = null,
+        ?int $limit = null,
+        int $offset = 0,
+    ): array {
+        $query = $this->_listingQuery($source, $siteId, $search)
+            ->orderBy(['title' => SORT_ASC])
+            ->limit($limit)
+            ->offset($offset > 0 ? $offset : null);
 
         if ($siteId !== null) {
-            $query = $this->baseQuery($source)
-                ->siteId($siteId)
-                ->orderBy(['title' => SORT_ASC]);
-
-            if ($search !== null && $search !== '') {
-                $query->search($search);
-            }
-
             $result = [];
             foreach ($query->all() as $element) {
                 $result[] = [
@@ -146,22 +152,12 @@ class Sources extends Component
             return $result;
         }
 
-        $primarySite = Craft::$app->getSites()->getPrimarySite();
-
-        $query = $this->baseQuery($source)
-            ->siteId($primarySite->id)
-            ->orderBy(['title' => SORT_ASC]);
-
-        if ($search !== null && $search !== '') {
-            $query->search($search);
-        }
-
         $primary = $query->all();
         $elementIds = array_map(fn($e) => $e->id, $primary);
 
         $perSiteTitles = [];
         if (!empty($elementIds)) {
-            foreach ($sites as $site) {
+            foreach (Craft::$app->getSites()->getAllSites() as $site) {
                 $siteElements = $this->baseQuery($source)
                     ->id($elementIds)
                     ->siteId($site->id)
@@ -180,6 +176,49 @@ class Sources extends Component
             ];
         }
         return $result;
+    }
+
+    /**
+     * Counts the rows {@see getElementsInSource()} would return without a limit.
+     */
+    public function countElementsInSource(Source $source, ?int $siteId = null, ?string $search = null): int
+    {
+        return (int)$this->_listingQuery($source, $siteId, $search)->count();
+    }
+
+    /**
+     * The group view's query before ordering and paging: scoped to one site
+     * (the primary site when $siteId is null) and optionally searched.
+     */
+    private function _listingQuery(Source $source, ?int $siteId, ?string $search): ElementQueryInterface
+    {
+        $query = $this->baseQuery($source)
+            ->siteId($siteId ?? Craft::$app->getSites()->getPrimarySite()->id);
+
+        if ($search !== null && $search !== '') {
+            $query->search($search);
+        }
+
+        return $query;
+    }
+
+    /**
+     * Whether an element belongs to a Tidy Tags source: a tag in any tag group,
+     * or an entry in a section configured as tag-like. Actions that take
+     * arbitrary element IDs use this to stay inside the plugin's remit.
+     */
+    public function isSourceElement(ElementInterface $element): bool
+    {
+        if ($element instanceof Tag) {
+            return true;
+        }
+
+        if ($element instanceof Entry && $element->sectionId !== null) {
+            $section = Craft::$app->getEntries()->getSectionById($element->sectionId);
+            return $section !== null && $this->isSectionConfigured($section);
+        }
+
+        return false;
     }
 
     /**
@@ -253,6 +292,9 @@ class Sources extends Component
      * Used by the duplicates view to let editors expand a cluster item and see
      * exactly what would move during a swap or merge.
      *
+     * When $user is given, elements that user can't view are left out, so the
+     * list never reveals titles from sections they have no access to.
+     *
      * @return array<int, array{
      *     elementId: int,
      *     title: string,
@@ -264,7 +306,7 @@ class Sources extends Component
      *     cpEditUrl: ?string,
      * }>
      */
-    public function getUsages(int $elementId, int $limit = 200): array
+    public function getUsages(int $elementId, int $limit = 200, ?User $user = null): array
     {
         $rows = (new Query())
             ->select(['fieldId', 'sourceId', 'sourceSiteId'])
@@ -294,6 +336,10 @@ class Sources extends Component
             );
 
             if ($element === null) {
+                continue;
+            }
+
+            if ($user !== null && !$elementsService->canView($element, $user)) {
                 continue;
             }
 

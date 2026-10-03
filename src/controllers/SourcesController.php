@@ -47,11 +47,31 @@ class SourcesController extends Controller
         return $this->renderSource($source, $siteId);
     }
 
+    /**
+     * Renders one page of a source. Sources can hold tens of thousands of
+     * items, so only `pageSize` elements are ever loaded per request.
+     */
     private function renderSource(Source $source, ?int $siteId): Response
     {
         $plugin = Plugin::$plugin;
-        $search = Craft::$app->getRequest()->getQueryParam('search');
-        $rows = $plugin->sources->getElementsInSource($source, $siteId, $search);
+        $request = Craft::$app->getRequest();
+        $search = $request->getQueryParam('search');
+        $search = is_string($search) ? trim($search) : null;
+
+        $pageSize = $plugin->getSettings()->pageSize;
+        $total = $plugin->sources->countElementsInSource($source, $siteId, $search);
+        $totalPages = max(1, (int)ceil($total / $pageSize));
+        $page = min(max(1, (int)$request->getQueryParam('page', 1)), $totalPages);
+
+        $rows = $plugin->sources->getElementsInSource(
+            $source,
+            $siteId,
+            $search,
+            $pageSize,
+            ($page - 1) * $pageSize,
+        );
+
+        $user = static::currentUser();
 
         return $this->renderTemplate('tidytags/group', [
             'source' => $source,
@@ -59,6 +79,15 @@ class SourcesController extends Controller
             'selectedSiteId' => $siteId,
             'rows' => $rows,
             'search' => $search,
+            'pagination' => [
+                'page' => $page,
+                'totalPages' => $totalPages,
+                'total' => $total,
+                'first' => $total === 0 ? 0 : ($page - 1) * $pageSize + 1,
+                'last' => ($page - 1) * $pageSize + count($rows),
+            ],
+            'canManage' => $user?->can(Plugin::PERMISSION_MANAGE_TAGS) ?? false,
+            'canDelete' => $user?->can(Plugin::PERMISSION_DELETE_TAGS) ?? false,
             'selectedSubnavItem' => 'dashboard',
         ]);
     }

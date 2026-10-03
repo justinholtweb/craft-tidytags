@@ -1,4 +1,5 @@
 {% import "_includes/forms" as forms %}
+{% import "tidytags/_macros" as tt %}
 
 {% set channelOptions = [] %}
 {% for section in sections %}
@@ -30,11 +31,11 @@
     instructions: 'Fuzzy suits free-text tags typed by editors, where duplicates are misspellings. Strict suits controlled vocabularies of proper nouns — clubs, competitions, places, people — where names sit close together in edit space.'|t('tidytags'),
 }) }}
 
-<div style="background:#f8f9fa;border-left:3px solid #cbd5e0;padding:10px 12px;margin:0 0 20px;font-size:12px;">
-    <p style="margin:0 0 6px;"><strong>Fuzzy</strong> flags <code>Manchestor</code> against
+<div class="tidytags-callout">
+    <p><strong>Fuzzy</strong> flags <code>Manchestor</code> against
         <code>Manchester</code> — and also <code>Durham</code> against <code>Fulham</code>,
         which are two characters apart.</p>
-    <p style="margin:0;"><strong>Strict</strong> flags <code>FC Bayern Munich</code> against
+    <p><strong>Strict</strong> flags <code>FC Bayern Munich</code> against
         <code>Bayern Munich</code> and <code>Wrexham</code> against <code>Wrexham AFC</code>,
         but never reports <code>Arsenal</code> as a duplicate of <code>Arsenal Women</code>.</p>
 </div>
@@ -60,7 +61,7 @@
         class: 'code',
     }) }}
 {% else %}
-    <p style="font-size:11px;color:#8a8a8a;margin-top:-8px;">
+    <p class="tidytags-note">
         Affix and qualifier tokens only apply to the strict strategy. Switch to strict and save
         to configure them.
     </p>
@@ -80,7 +81,7 @@
 </p>
 
 {% if channelOptions|length == 0 %}
-    <p style="color:#8a8a8a;">No channel sections exist yet.</p>
+    <p class="tidytags-note">No channel sections exist yet.</p>
 {% else %}
     {{ forms.checkboxSelectField({
         label: 'Tag-like sections'|t('tidytags'),
@@ -100,7 +101,7 @@
 <p>
     For each source you can pick:
 </p>
-<ul style="margin-top:-6px;">
+<ul class="tidytags-bullets">
     <li><strong>Differentiator field</strong> — a field that distinguishes same-named items
         (e.g. a <code>sport</code> field that tells <em>England (Football)</em> apart from
         <em>England (Cricket)</em>). When set, two items with the same title but different
@@ -111,14 +112,14 @@
 </ul>
 
 {% if sources|length == 0 %}
-    <p style="color:#8a8a8a;">No sources to configure yet.</p>
+    <p class="tidytags-note">No sources to configure yet.</p>
 {% else %}
-    <table class="data fullwidth" style="margin-top:8px;">
+    <table class="data fullwidth tidytags-field-config">
         <thead>
             <tr>
-                <th style="width:30%;">Source</th>
-                <th style="width:30%;">Differentiator field</th>
-                <th>Display fields</th>
+                <th scope="col">Source</th>
+                <th scope="col">Differentiator field</th>
+                <th scope="col">Display fields</th>
             </tr>
         </thead>
         <tbody>
@@ -127,43 +128,35 @@
                 {% set differentiator = settings.getDifferentiatorHandle(source.uid) %}
                 {% set display = settings.getDisplayHandles(source.uid) %}
                 <tr>
-                    <td>
+                    <th scope="row">
                         <strong>{{ source.name }}</strong>
-                        <span class="tidytags-type-badge tidytags-type-{{ source.type }}"
-                              style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:10px;font-size:10px;text-transform:uppercase;letter-spacing:.04em;background:{{ source.type == 'tag' ? '#e3efff' : '#fff1e3' }};color:{{ source.type == 'tag' ? '#0b5394' : '#8a4b00' }};">
-                            {{ source.typeLabel }}
-                        </span>
+                        {{ tt.badge(source.type, source.typeLabel) }}
                         <br>
-                        <code style="font-size:11px;color:#596673;">{{ source.handle }}</code>
-                    </td>
+                        <code class="tidytags-handle">{{ source.handle }}</code>
+                    </th>
+                    {% set fieldOptions = fields|map(f => { label: f.name ~ ' (' ~ f.handle ~ ')', value: f.handle }) %}
                     <td>
                         {% if fields|length == 0 %}
-                            <span style="color:#8a8a8a;font-size:12px;">No custom fields available.</span>
+                            <span class="tidytags-note">No custom fields available.</span>
                         {% else %}
-                            <select name="sourceFieldConfig[{{ source.uid }}][differentiator]">
-                                <option value="">— None —</option>
-                                {% for field in fields %}
-                                    <option value="{{ field.handle }}" {{ differentiator == field.handle ? 'selected' }}>
-                                        {{ field.name }} ({{ field.handle }})
-                                    </option>
-                                {% endfor %}
-                            </select>
+                            {{ forms.select({
+                                name: 'sourceFieldConfig[' ~ source.uid ~ '][differentiator]',
+                                options: [{ label: '— None —'|t('tidytags'), value: '' }]|merge(fieldOptions),
+                                value: differentiator,
+                                inputAttributes: { aria: { label: 'Differentiator field for {name}'|t('tidytags', { name: source.name }) } },
+                            }) }}
                         {% endif %}
                     </td>
                     <td>
                         {% if fields|length == 0 %}
-                            <span style="color:#8a8a8a;font-size:12px;">—</span>
+                            <span class="tidytags-missing">—</span>
                         {% else %}
-                            <div class="tidytags-display-fields" style="display:flex;flex-wrap:wrap;gap:6px 12px;">
-                                {% for field in fields %}
-                                    <label style="font-size:12px;display:inline-flex;align-items:center;gap:4px;">
-                                        <input type="checkbox"
-                                               name="sourceFieldConfig[{{ source.uid }}][display][]"
-                                               value="{{ field.handle }}"
-                                               {{ field.handle in display ? 'checked' }}>
-                                        {{ field.name }}
-                                    </label>
-                                {% endfor %}
+                            <div class="tidytags-display-fields">
+                                {{ forms.checkboxGroup({
+                                    name: 'sourceFieldConfig[' ~ source.uid ~ '][display]',
+                                    options: fields|map(f => { label: f.name, value: f.handle }),
+                                    values: display,
+                                }) }}
                             </div>
                         {% endif %}
                     </td>
@@ -173,7 +166,7 @@
     </table>
 {% endif %}
 
-<p style="font-size:11px;color:#8a8a8a;margin-top:12px;">
+<p class="tidytags-note">
     These values can also be driven from <code>config/tidytags.php</code>, which overlays saved
     settings at request time — useful for per-environment configuration. Source field config
     keys by source UID, e.g.

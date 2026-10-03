@@ -1,5 +1,32 @@
 # Changelog
 
+## 5.3.0 - 2026-10-03
+
+### Added
+
+- **Pagination on the Manage screen.** The group view now loads one page of items at a time instead of the whole source. A 17,000-tag group used to exhaust PHP's memory limit before the page rendered ([#1](https://github.com/justinholtweb/craft-tidytags/issues/1)). Paging keeps the search and site filter, and actions return you to the page you were on.
+- **Pagination on the Duplicates screen.** Clusters are listed a page at a time, with a heading wherever the source changes, and only the clusters on the current page are loaded as elements.
+- **`pageSize` and `duplicatesPageSize` settings.** Items per Manage page (100 by default, 1–1000) and clusters per Duplicates page (25 by default, 1–500). Set them in `config/tidytags.php`.
+- **`tidytags-manageTags` and `tidytags-deleteTags` permissions.** Rename and swap need *manage*, delete needs *delete*, and merge needs both. Actions the user can't run are hidden on the Manage and Duplicates screens.
+- The usage list says when it has been cut off at its 200-item limit.
+- `DuplicateDetector::getDuplicatesPage()`, `Sources::countElementsInSource()`, `Sources::isSourceElement()`, `Tags::canRepointRelations()`, `TitleMatcher::strictKey()` and `TitleMatcher::compareFuzzyNormalized()`. `Sources::getElementsInSource()` takes optional `$limit` and `$offset` arguments.
+
+### Changed
+
+- **Duplicate scans scale to large vocabularies.** Scans used to load every element and compare every title with every other, so a 17,000-item source took minutes and could run out of memory. They now work on IDs and titles, find candidate pairs through an index (strict titles grouped by key, fuzzy titles through a pigeonhole segment index), and only load the elements they return. Results are identical to the old pairwise comparison; a property test checks this against brute force on random vocabularies. A 17,000-title source now clusters in well under a second.
+- Scan results are cached until a tag or entry is saved or deleted, or the match settings change, so moving between pages doesn't rescan.
+- The editor "did you mean?" lookup compares against the cached titles and only loads the elements it returns, instead of loading every element on each pause in typing.
+- The Duplicates screen's similarity threshold is capped at 6.
+- **Upgrade note:** non-admin users with only `accessPlugin-tidytags` can no longer rename, merge, delete, or swap. To keep those workflows, grant the new permissions in **Settings → Users**.
+- Merge and swap now invalidate element and template caches after rewriting relations. Running `clear-caches/all` afterwards is no longer needed.
+- **Control panel styling follows Craft's theme.** Every inline style and hard-coded colour has moved into the plugin stylesheet, built on Craft's CP colour tokens, so the screens and the editor warning work in dark mode and high contrast. Selects, checkboxes, radios and text inputs use Craft's `_includes/forms` macros, which gives them proper labels and focus styles.
+
+### Security
+
+- Merge, delete, rename, and swap only required plugin access, so any user who could open Tidy Tags could run them. Each now requires its own permission.
+- Swap re-pointed relations between any two elements, including entries in sections the user couldn't edit. It now only accepts tags and entries in configured tag-like sections. Merge and swap also return 403 unless the user can save every element whose relations they rewrite.
+- The usage lookup (`tidytags/tags/usages`) returned titles for any element ID. It now only answers for Tidy Tags source elements, and leaves out usages the user can't view.
+
 ## 5.2.0 - 2026-09-30
 
 ### Added
