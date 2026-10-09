@@ -1,7 +1,6 @@
 # Changelog
 
-## Unreleased
-
+## 5.4.0 - 2026-10-09
 ### Added
 
 - **Console commands.** `tidytags/duplicates` runs the duplicate scan from the command line, for one source or all of them, with `--strategy`, `--threshold`, `--scope`, `--site` and `--format=table|json|csv`; `--fail-on-duplicates` exits 1 when any are found, so a CI job can fail on new duplicates. `tidytags/merge --into=<id> <ids>` merges tags the way the Merge button does. `tidytags/unused` lists tags nothing relates to, and `--delete` prunes them.
