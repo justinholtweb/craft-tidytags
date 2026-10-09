@@ -207,6 +207,66 @@ return [
 
 Use section UIDs (not IDs or handles) so the config is stable across environments. You can find a section's UID in the URL of its settings page, or via `php craft entries/sections`. Tag-group UIDs come from `php craft tags/groups` or the URL of the tag group's settings page.
 
+## Console commands
+
+Everything the Duplicates screen and the Manage screen's merge do is also available from the command line, for vocabularies too large to page through and for CI reports. The commands are trusted the way any `php craft` command is: they don't check a user's permissions, and merge doesn't check who can edit the entries whose relations move.
+
+### `tidytags/duplicates`
+
+Scans for near-duplicates with the same service the Duplicates screen uses, so both report the same clusters. Read-only.
+
+```sh
+php craft tidytags/duplicates
+php craft tidytags/duplicates --source=topics --strategy=strict --format=json
+php craft tidytags/duplicates --scope=cross --format=csv > duplicates.csv
+php craft tidytags/duplicates --fail-on-duplicates
+```
+
+| Option | |
+| --- | --- |
+| `--source` | One tag group or tag-like section, by handle. Use `group:<handle>` or `section:<handle>` when a handle names both. |
+| `--scope` | `within` (default) or `cross` — clusters that span more than one source. Can't be combined with `--source`. |
+| `--strategy` | `fuzzy` or `strict` for this run only. The saved `matchStrategy` setting is left alone. |
+| `--threshold` | Levenshtein threshold for `fuzzy`, 0–6 (default 2). |
+| `--site` | Site handle whose titles are compared (default: the primary site). |
+| `--format` | `table` (default), `json` or `csv`. |
+| `--fail-on-duplicates` | Exit with status 1 when any clusters are found, so a CI job fails on new duplicates. |
+
+### `tidytags/merge`
+
+Merges tags into one, exactly like the Merge button: relations move to the target, relations the target already has are dropped, and the merged tags are deleted, all in one transaction.
+
+```sh
+php craft tidytags/merge --into=12 34 56          # dry run
+php craft tidytags/merge --into=12 34,56 --apply  # merge
+```
+
+**It is a dry run unless you pass `--apply`.** The dry run lists each tag with how many of its relations would move and how many would be dropped. `--dry-run` always wins, even next to `--apply`. Every tag must be a tag (not an entry) in the target's tag group; otherwise nothing is merged. `--format=json` prints the plan as JSON.
+
+### `tidytags/unused`
+
+Lists tags that nothing relates to — no row in `{{%relations}}` targets them from any field, element or site — and optionally deletes them.
+
+```sh
+php craft tidytags/unused
+php craft tidytags/unused --source=topics --format=csv
+php craft tidytags/unused --delete                 # dry run
+php craft tidytags/unused --delete --apply         # delete
+```
+
+Unused entries in tag-like sections are listed too, but **never deleted**: `--delete` only removes tags, and refuses an entry-backed `--source`. **`--delete` is a dry run unless you pass `--apply`**, and `--dry-run` always wins. Each tag is checked again just before it is deleted, so one that picked up a relation since the scan is kept and reported.
+
+### Output and exit codes
+
+`--format=json` and `--format=csv` write only the report to stdout; every note goes to stderr, so the output can be piped into `jq` or a file. CSV cells that start with `=`, `+`, `-`, `@`, a tab or a carriage return are prefixed with `'` so a spreadsheet won't run a tag title as a formula.
+
+| Exit | Meaning |
+| --- | --- |
+| `0` | Success, or a dry run |
+| `1` | `--fail-on-duplicates` found duplicates, a merge failed (and was rolled back), or a tag couldn't be deleted |
+| `64` | Bad options or arguments |
+| `65` | The tags can't be merged (not tags, or in different groups) |
+
 ## Permissions
 
 | Permission | Allows |
@@ -259,7 +319,7 @@ Plugin-wide settings (match strategy, affix and qualifier tokens, tag-like secti
 | `tidytags/tags/merge` | POST | `targetId`, `sourceIds[]` |
 | `tidytags/tags/swap` | POST | `targetId`, `sourceIds[]` |
 
-Every endpoint requires `accessPlugin-tidytags`. The mutating endpoints also need a CSRF token and the permissions listed under [Permissions](#permissions).
+Every endpoint requires `accessPlugin-tidytags`. The same operations are available as [console commands](#console-commands). The mutating endpoints also need a CSRF token and the permissions listed under [Permissions](#permissions).
 
 ## Development
 
@@ -272,6 +332,12 @@ ddev exec vendor/bin/codecept run unit
 ```
 
 The suite installs Craft into the DDEV database from scratch on every run and wraps each test in a transaction, so it needs no seeded project config and leaves nothing behind. Test-only Craft config lives in `tests/_craft/`, and `tests/support/Fixtures.php` builds tag groups, tag-like channel sections, custom fields, extra sites, and raw relation rows.
+
+Integration checks for the console commands run as a plain PHP script inside a Craft install that has the plugin installed (they create and remove their own `tidytagsCheck` tag groups):
+
+```sh
+php /path/to/craft-tidytags/tests/integration/console.php   # from the Craft project root
+```
 
 To run a single test class:
 

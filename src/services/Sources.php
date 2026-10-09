@@ -222,6 +222,58 @@ class Sources extends Component
     }
 
     /**
+     * Items in a source that nothing relates to — no row in `{{%relations}}`
+     * targets them from any field, element or site — as ID => title, ordered
+     * by title. Titles are the primary site's where the item exists there.
+     *
+     * Runs as one query with a NOT EXISTS subquery, so it never loads
+     * elements however large the source is.
+     *
+     * @return array<int, string>
+     */
+    public function getUnused(Source $source): array
+    {
+        $pairs = $this->baseQuery($source)
+            ->site('*')
+            ->unique()
+            ->preferSites([Craft::$app->getSites()->getPrimarySite()->id])
+            ->andWhere(['not exists', (new Query())
+                ->from(['tidytags_r' => '{{%relations}}'])
+                ->where('[[tidytags_r.targetId]] = [[elements.id]]')])
+            ->select(['elements.id', 'elements_sites.title'])
+            ->orderBy(['elements_sites.title' => SORT_ASC, 'elements.id' => SORT_ASC])
+            ->pairs();
+
+        $out = [];
+        foreach ($pairs as $id => $title) {
+            $out[(int)$id] = (string)$title;
+        }
+        return $out;
+    }
+
+    /**
+     * Finds a source by handle. Tag groups and sections have separate handle
+     * namespaces, so `group:<handle>` or `section:<handle>` picks one when a
+     * bare handle matches both.
+     *
+     * @return Source[] every source the handle matches (empty, one, or — for an
+     *                  ambiguous bare handle — two)
+     */
+    public function findSourcesByHandle(string $handle): array
+    {
+        $type = null;
+        if (preg_match('/^(group|section):(.+)$/', $handle, $m)) {
+            $type = $m[1] === 'group' ? Source::TYPE_TAG : Source::TYPE_ENTRY;
+            $handle = $m[2];
+        }
+
+        return array_values(array_filter(
+            $this->getAllSources(),
+            fn(Source $s) => $s->handle === $handle && ($type === null || $s->type === $type),
+        ));
+    }
+
+    /**
      * Base element query for a source, scoped to its container and including
      * disabled elements. All reads go through this so tag and entry queries
      * share the same filtering semantics.

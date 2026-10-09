@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Console commands.** `tidytags/duplicates` runs the duplicate scan from the command line, for one source or all of them, with `--strategy`, `--threshold`, `--scope`, `--site` and `--format=table|json|csv`; `--fail-on-duplicates` exits 1 when any are found, so a CI job can fail on new duplicates. `tidytags/merge --into=<id> <ids>` merges tags the way the Merge button does. `tidytags/unused` lists tags nothing relates to, and `--delete` prunes them.
+- Merge and delete from the console are dry runs unless `--apply` is passed, and `--dry-run` always wins. The merge dry run shows, per tag, how many relations would move and how many would be dropped as duplicates.
+- `Tags::mergeProblems()`, `Tags::previewMerge()`, `Tags::deleteUnusedTags()`, `Sources::getUnused()` and `Sources::findSourcesByHandle()`.
+
+### Changed
+
+- Merge and its dry run share one routine for sorting relations into moved and dropped, so the preview always matches what the merge does.
+
 ## 5.3.0 - 2026-10-03
 
 ### Added

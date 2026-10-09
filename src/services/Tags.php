@@ -177,6 +177,133 @@ class Tags extends Component
     }
 
     /**
+     * Reasons a merge of $sourceIds into $targetId can't run, or an empty array
+     * when it can. Merge is tag-only and stays inside one tag group: a tag
+     * field is limited to its group, so moving its relations onto a tag from
+     * another group would leave the field pointing outside its own source.
+     *
+     * The control panel only offers merges that pass these checks; the
+     * console command calls this before doing anything.
+     *
+     * @param int[] $sourceIds
+     * @return string[]
+     */
+    public function mergeProblems(array $sourceIds, int $targetId): array
+    {
+        $target = Tag::find()->id($targetId)->status(null)->one();
+        if ($target === null) {
+            return ["#{$targetId} is not a tag."];
+        }
+
+        $sourceIds = $this->_normalizeSourceIds($sourceIds, $targetId);
+        if (empty($sourceIds)) {
+            return ['There are no tags to merge into #' . $targetId . '.'];
+        }
+
+        $tags = Tag::find()->id($sourceIds)->status(null)->indexBy('id')->all();
+
+        $problems = [];
+        foreach ($sourceIds as $id) {
+            $tag = $tags[$id] ?? null;
+            if ($tag === null) {
+                $problems[] = "#{$id} is not a tag.";
+            } elseif ($tag->groupId !== $target->groupId) {
+                $problems[] = "#{$id} “{$tag->title}” is in a different tag group from #{$targetId} “{$target->title}”.";
+            }
+        }
+
+        return $problems;
+    }
+
+    /**
+     * Describes what {@see mergeTags()} would do without doing it: per source
+     * tag, how many relations would move to the target and how many would be
+     * dropped as duplicates of a relation the target already has.
+     *
+     * @param int[] $sourceIds
+     * @return array{
+     *     target: array{id: int, title: string},
+     *     sources: array<int, array{id: int, title: string, relations: int, moved: int, deduped: int}>,
+     *     moved: int,
+     *     deduped: int,
+     * }
+     */
+    public function previewMerge(array $sourceIds, int $targetId): array
+    {
+        $sourceIds = $this->_normalizeSourceIds($sourceIds, $targetId);
+        $target = Tag::find()->id($targetId)->status(null)->one();
+        $titles = empty($sourceIds)
+            ? []
+            : Tag::find()->id($sourceIds)->status(null)->select(['elements.id', 'elements_sites.title'])->pairs();
+
+        $sources = [];
+        foreach ($sourceIds as $id) {
+            $sources[$id] = [
+                'id' => $id,
+                'title' => (string)($titles[$id] ?? ''),
+                'relations' => 0,
+                'moved' => 0,
+                'deduped' => 0,
+            ];
+        }
+
+        $moved = 0;
+        $deduped = 0;
+        if (!empty($sourceIds)) {
+            [, $toUpdate, $toDelete] = $this->_classifyRelations($sourceIds, $targetId);
+            foreach ($toUpdate as $r) {
+                $sources[(int)$r['targetId']]['moved']++;
+                $sources[(int)$r['targetId']]['relations']++;
+                $moved++;
+            }
+            foreach ($toDelete as $r) {
+                $sources[(int)$r['targetId']]['deduped']++;
+                $sources[(int)$r['targetId']]['relations']++;
+                $deduped++;
+            }
+        }
+
+        return [
+            'target' => ['id' => $targetId, 'title' => (string)($target?->title ?? '')],
+            'sources' => array_values($sources),
+            'moved' => $moved,
+            'deduped' => $deduped,
+        ];
+    }
+
+    /**
+     * Deletes the given tags, but only those that are still unused when the
+     * delete runs — a tag that gained a relation since it was listed is left
+     * alone and reported back.
+     *
+     * @param int[] $tagIds
+     * @return array{deleted: int[], skipped: int[], failed: int[]}
+     */
+    public function deleteUnusedTags(array $tagIds): array
+    {
+        $result = ['deleted' => [], 'skipped' => [], 'failed' => []];
+        $tagIds = array_values(array_unique(array_filter(array_map(fn($id) => (int)$id, $tagIds))));
+
+        foreach ($tagIds as $id) {
+            $used = (new Query())
+                ->from(['{{%relations}}'])
+                ->where(['targetId' => $id])
+                ->exists();
+            if ($used) {
+                $result['skipped'][] = $id;
+                continue;
+            }
+            if ($this->deleteTag($id)) {
+                $result['deleted'][] = $id;
+            } else {
+                $result['failed'][] = $id;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
      * Whether $user may save every element whose relations a merge or swap of
      * $sourceIds would rewrite — the entries, assets, users and so on that
      * hold a relational field pointing at one of the sources.
@@ -271,12 +398,7 @@ class Tags extends Component
     private function _repointRelations(array $sourceIds, int $targetId): array
     {
         $db = Craft::$app->getDb();
-
-        $relations = (new Query())
-            ->select(['id', 'fieldId', 'sourceId', 'sourceSiteId', 'targetId'])
-            ->from(['{{%relations}}'])
-            ->where(['targetId' => $sourceIds])
-            ->all();
+        [$relations, $toUpdate, $toDelete] = $this->_classifyRelations($sourceIds, $targetId);
 
         $affectedIds = array_merge($sourceIds, array_map(fn($r) => (int)$r['sourceId'], $relations));
         $affectedTypes = (new Query())
@@ -285,6 +407,39 @@ class Tags extends Component
             ->from(['{{%elements}}'])
             ->where(['id' => array_values(array_unique($affectedIds))])
             ->column();
+
+        if (!empty($toDelete)) {
+            $db->createCommand()
+                ->delete('{{%relations}}', ['id' => array_column($toDelete, 'id')])
+                ->execute();
+        }
+        if (!empty($toUpdate)) {
+            $db->createCommand()
+                ->update('{{%relations}}', ['targetId' => $targetId], ['id' => array_column($toUpdate, 'id')])
+                ->execute();
+        }
+
+        return $affectedTypes;
+    }
+
+    /**
+     * Sorts every relation pointing at $sourceIds into the rows a re-point would
+     * update and the rows it would delete because the owner already relates to
+     * the target through the same field and site. Shared by the real re-point
+     * and {@see previewMerge()}, so a dry run reports exactly what a merge does.
+     *
+     * @param int[] $sourceIds
+     * @return array{0: array<int, array<string, mixed>>, 1: array<int, array<string, mixed>>, 2: array<int, array<string, mixed>>}
+     *         [all relations, rows to update, rows to delete]
+     */
+    private function _classifyRelations(array $sourceIds, int $targetId): array
+    {
+        $relations = (new Query())
+            ->select(['id', 'fieldId', 'sourceId', 'sourceSiteId', 'targetId'])
+            ->from(['{{%relations}}'])
+            ->where(['targetId' => $sourceIds])
+            ->orderBy(['id' => SORT_ASC])
+            ->all();
 
         $existing = (new Query())
             ->select(['fieldId', 'sourceId', 'sourceSiteId'])
@@ -303,25 +458,14 @@ class Tags extends Component
         foreach ($relations as $r) {
             $key = $r['fieldId'] . '|' . $r['sourceId'] . '|' . ($r['sourceSiteId'] ?? 'null');
             if (isset($seen[$key])) {
-                $toDelete[] = $r['id'];
+                $toDelete[] = $r;
             } else {
-                $toUpdate[] = $r['id'];
+                $toUpdate[] = $r;
                 $seen[$key] = true;
             }
         }
 
-        if (!empty($toDelete)) {
-            $db->createCommand()
-                ->delete('{{%relations}}', ['id' => $toDelete])
-                ->execute();
-        }
-        if (!empty($toUpdate)) {
-            $db->createCommand()
-                ->update('{{%relations}}', ['targetId' => $targetId], ['id' => $toUpdate])
-                ->execute();
-        }
-
-        return $affectedTypes;
+        return [$relations, $toUpdate, $toDelete];
     }
 
     /**
