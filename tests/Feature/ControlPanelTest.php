@@ -92,6 +92,18 @@ it('answers the editor’s duplicate check only for tag-like entries', function 
         ->assertOk()->assertJson(['applies' => false, 'matches' => []]);
 });
 
+it('refuses a swap involving an ID that isn’t a live source element', function () {
+    $teams = $this->createSection('teams');
+    $target = $this->createEntry($teams, 'Arsenal');
+    $gone = $this->createEntry($teams, 'Arsenl');
+    $this->configure([$teams]);
+    \CraftCms\Cms\Support\Facades\Elements::deleteElement($gone);
+
+    $this->actingAs($this->admin())
+        ->postJson(cp_url('tidytags/tags/swap'), ['sourceIds' => [$gone->id, 999999], 'targetId' => $target->id])
+        ->assertForbidden();
+});
+
 it('keeps the flash key the screens read', function () {
     expect(ItemsController::URL_REPORT_FLASH)->toBe('tidytagsUrlReport');
 });

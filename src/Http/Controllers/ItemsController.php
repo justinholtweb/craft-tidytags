@@ -160,7 +160,9 @@ class ItemsController
 
         foreach (array_unique([...$sourceIds, $targetId]) as $id) {
             $element = Elements::getElementById($id, null, '*');
-            abort_if($element !== null && ! $this->sources->isSourceElement($element), 403, 'Swap only works between Tidy Tags source elements.');
+            // Fail closed: an ID that doesn't resolve (trashed, a draft, nothing) is refused too, or
+            // swap would re-point relations from elements outside Tidy Tags' remit.
+            abort_if($element === null || ! $this->sources->isSourceElement($element), 403, 'Swap only works between Tidy Tags source elements.');
         }
 
         $user = currentUser() ?? abort(403);
