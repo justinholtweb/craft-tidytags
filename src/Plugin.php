@@ -175,10 +175,10 @@ class Plugin extends BasePlugin
                     'heading' => 'Tidy Tags',
                     'permissions' => [
                         self::PERMISSION_MANAGE_TAGS => [
-                            'label' => 'Rename and merge tags, and swap relations',
+                            'label' => 'Rename and merge tags and tag-like entries, and swap relations',
                             'nested' => [
                                 self::PERMISSION_DELETE_TAGS => [
-                                    'label' => 'Delete tags',
+                                    'label' => 'Delete tags and tag-like entries',
                                 ],
                             ],
                         ],
@@ -190,8 +190,9 @@ class Plugin extends BasePlugin
 
     /**
      * Registers the CP asset bundle so the "did you mean" duplicate warning
-     * JavaScript runs on every control panel page. The JS only hooks native
-     * Tags fields, so entry-backed sources are intentionally not covered.
+     * JavaScript runs on every control panel page. It hooks native Tags
+     * fields and the title field of entry editors; the server decides whether
+     * an entry is in a tag-like section, and the JS stops asking if it isn't.
      */
     private function _registerCpAssetBundle(): void
     {

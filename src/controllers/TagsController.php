@@ -3,21 +3,24 @@
 namespace justinholtweb\tidytags\controllers;
 
 use Craft;
+use craft\elements\Entry;
+use craft\helpers\UrlHelper;
 use craft\web\Controller;
+use justinholtweb\tidytags\helpers\Csv;
 use justinholtweb\tidytags\Plugin;
 use yii\web\BadRequestHttpException;
 use yii\web\ForbiddenHttpException;
+use yii\web\NotFoundHttpException;
 use yii\web\Response;
 
 /**
- * Tag mutations, cross-type relation swap, and the editor-side duplicate /
+ * Item mutations, cross-type relation swap, and the editor-side duplicate /
  * usage lookup endpoints.
  *
- * Browse/search views for all sources (including entry-backed tag-like
- * sections) live in SourcesController. Most actions here remain tag-only:
- * rename, merge, and delete operate on Tag elements exclusively, and the
- * element query scoping makes that safe even if a caller posts an entry ID
- * — the record won't be found and the action no-ops.
+ * Browse/search views for all sources live in SourcesController. Rename,
+ * merge and delete act on writable items only — tags, and entries in sections
+ * opted into `writableSectionUids` — via {@see \justinholtweb\tidytags\services\Tags::getWritableItem()},
+ * so an ID from anywhere else won't resolve and the action no-ops.
  *
  * The exceptions are:
  * - {@see actionUsages()} reads relations against any Tidy Tags source element.
@@ -51,6 +54,7 @@ class TagsController extends Controller
 
         $required = match ($action->id) {
             'rename', 'swap' => [Plugin::PERMISSION_MANAGE_TAGS],
+            'url-report' => [Plugin::PERMISSION_MANAGE_TAGS, Plugin::PERMISSION_DELETE_TAGS],
             'delete' => [Plugin::PERMISSION_DELETE_TAGS],
             'merge' => [Plugin::PERMISSION_MANAGE_TAGS, Plugin::PERMISSION_DELETE_TAGS],
             default => [],
@@ -63,7 +67,17 @@ class TagsController extends Controller
     }
 
     /**
-     * Renames a single tag across all sites or within a given site.
+     * Session flash key holding the token of the last merge's URL report.
+     */
+    public const URL_REPORT_FLASH = 'tidytagsUrlReport';
+
+    /**
+     * How long a merge's URL report stays downloadable, in seconds.
+     */
+    public const URL_REPORT_TTL = 86400;
+
+    /**
+     * Renames a single item across all sites or within a given site.
      */
     public function actionRename(): Response
     {
@@ -75,22 +89,28 @@ class TagsController extends Controller
         $siteIdParam = $request->getBodyParam('siteId');
         $siteId = ($siteIdParam !== null && $siteIdParam !== '') ? (int)$siteIdParam : null;
 
-        $ok = Plugin::$plugin->tags->renameTag($tagId, $newTitle, $siteId);
+        $item = Plugin::$plugin->tags->getWritableItem($tagId, $siteId);
+        if ($item !== null && !Craft::$app->getElements()->canSave($item, static::currentUser())) {
+            throw new ForbiddenHttpException('You can\'t edit this item.');
+        }
+
+        $ok = Plugin::$plugin->tags->rename($tagId, $newTitle, $siteId);
 
         if ($request->getAcceptsJson()) {
             return $this->asJson(['success' => $ok]);
         }
 
         if ($ok) {
-            Craft::$app->getSession()->setNotice('Tag renamed.');
+            Craft::$app->getSession()->setNotice('Renamed.');
         } else {
-            Craft::$app->getSession()->setError('Unable to rename tag.');
+            Craft::$app->getSession()->setError('Unable to rename.');
         }
         return $this->redirectToPostedUrl();
     }
 
     /**
-     * Deletes one or more tags.
+     * Deletes one or more items. Entries go to the trash; tags are deleted
+     * outright.
      */
     public function actionDelete(): Response
     {
@@ -106,18 +126,26 @@ class TagsController extends Controller
             $tagIds = [(int)$single];
         }
 
-        $count = Plugin::$plugin->tags->deleteTags($tagIds);
+        $user = static::currentUser();
+        if ($user === null || !Plugin::$plugin->tags->canDeleteItems($tagIds, $user)) {
+            throw new ForbiddenHttpException('You can\'t delete every one of these items.');
+        }
+
+        $count = Plugin::$plugin->tags->deleteMany($tagIds);
 
         if ($request->getAcceptsJson()) {
             return $this->asJson(['success' => $count > 0, 'deleted' => $count]);
         }
 
-        Craft::$app->getSession()->setNotice("Deleted {$count} tag(s).");
+        Craft::$app->getSession()->setNotice("Deleted {$count} item(s).");
         return $this->redirectToPostedUrl();
     }
 
     /**
-     * Merges source tags into a target tag.
+     * Merges source items into a target item in the same source.
+     *
+     * When the merge retires URLs (entries with URIs), the report is cached and
+     * its token flashed, so the next page can offer it as a CSV download.
      */
     public function actionMerge(): Response
     {
@@ -131,20 +159,71 @@ class TagsController extends Controller
             throw new BadRequestHttpException('sourceIds must be an array.');
         }
 
+        $user = static::currentUser();
+        if ($user === null || !Plugin::$plugin->tags->canMergeItems($sourceIds, $targetId, $user)) {
+            throw new ForbiddenHttpException('You can\'t edit the item being kept or delete the items being merged.');
+        }
         $this->_requireCanRepoint($sourceIds);
 
-        $ok = Plugin::$plugin->tags->mergeTags($sourceIds, $targetId);
+        $tags = Plugin::$plugin->tags;
+        $problems = $tags->mergeProblems($sourceIds, $targetId);
+        $result = $problems === [] ? $tags->merge($sourceIds, $targetId) : ['success' => false, 'urls' => []];
+        $message = $problems !== [] ? implode(' ', $problems) : ($result['success'] ? null : 'Merge failed.');
+
+        $reportUrl = null;
+        if ($result['success'] && $result['urls'] !== []) {
+            $token = Craft::$app->getSecurity()->generateRandomString(24);
+            Craft::$app->getCache()->set($this->_reportCacheKey($token), $result['urls'], self::URL_REPORT_TTL);
+            Craft::$app->getSession()->setFlash(self::URL_REPORT_FLASH, ['token' => $token, 'count' => count($result['urls'])]);
+            $reportUrl = UrlHelper::actionUrl('tidytags/tags/url-report', ['report' => $token]);
+        }
 
         if ($request->getAcceptsJson()) {
-            return $this->asJson(['success' => $ok]);
+            return $this->asJson([
+                'success' => $result['success'],
+                'message' => $message,
+                'urls' => $result['urls'],
+                'urlReport' => $reportUrl,
+            ]);
         }
 
-        if ($ok) {
-            Craft::$app->getSession()->setNotice('Tags merged.');
+        if ($result['success']) {
+            Craft::$app->getSession()->setNotice('Merged.');
         } else {
-            Craft::$app->getSession()->setError('Merge failed.');
+            Craft::$app->getSession()->setError($message);
         }
         return $this->redirectToPostedUrl();
+    }
+
+    /**
+     * Downloads the URL report of a recent merge as CSV: site, merged item,
+     * old URL, new URL. Ready to feed into whatever redirect tool the site uses.
+     *
+     * The parameter is `report`, not `token`: Craft reserves `token` for its
+     * own preview and impersonation tokens and rejects requests whose `token`
+     * it doesn't recognise.
+     */
+    public function actionUrlReport(string $report): Response
+    {
+        $rows = Craft::$app->getCache()->get($this->_reportCacheKey($report));
+        if (!is_array($rows)) {
+            throw new NotFoundHttpException('That URL report has expired.');
+        }
+
+        $csv = Csv::build(
+            ['site', 'sourceId', 'sourceTitle', 'oldUrl', 'newUrl'],
+            array_map(fn(array $row) => [
+                $row['siteHandle'],
+                $row['sourceId'],
+                $row['sourceTitle'],
+                $row['oldUrl'],
+                $row['newUrl'],
+            ], $rows),
+        );
+
+        return $this->response->sendContentAsFile($csv, 'tidytags-merged-urls.csv', [
+            'mimeType' => 'text/csv',
+        ]);
     }
 
     /**
@@ -164,12 +243,63 @@ class TagsController extends Controller
         $siteIdParam = $request->getParam('siteId');
         $siteId = ($siteIdParam !== null && $siteIdParam !== '') ? (int)$siteIdParam : null;
 
+        // From an entry's title field: only entries in tag-like sections are
+        // checked, and the entry itself is left out of its own matches.
+        $elementIdParam = $request->getParam('elementId');
+        if ($elementIdParam !== null && $elementIdParam !== '') {
+            $canonicalId = $this->_tagLikeEntryId((int)$elementIdParam);
+            if ($canonicalId === null) {
+                return $this->asJson(['success' => true, 'applies' => false, 'matches' => []]);
+            }
+
+            $matches = Plugin::$plugin->duplicateDetector->findSimilar($title, null, $siteId, null, 11);
+            $matches = array_values(array_filter($matches, fn(array $m) => (int)$m['id'] !== $canonicalId));
+
+            return $this->asJson([
+                'success' => true,
+                'applies' => true,
+                'matches' => array_slice($matches, 0, 10),
+            ]);
+        }
+
         $matches = Plugin::$plugin->duplicateDetector->findSimilar($title, $groupId, $siteId);
 
         return $this->asJson([
             'success' => true,
+            'applies' => true,
             'matches' => $matches,
         ]);
+    }
+
+    /**
+     * The canonical ID of an entry (or of the entry a draft belongs to) when it
+     * is in a tag-like section, otherwise null. Unpublished drafts — what the
+     * "New entry" button in an Entries field creates — count as their own
+     * canonical entry.
+     */
+    private function _tagLikeEntryId(int $elementId): ?int
+    {
+        if ($elementId <= 0) {
+            return null;
+        }
+
+        $entry = Entry::find()
+            ->id($elementId)
+            ->drafts(null)
+            ->provisionalDrafts(null)
+            ->status(null)
+            ->site('*')
+            ->unique()
+            ->one();
+
+        if ($entry === null || $entry->sectionId === null) {
+            return null;
+        }
+        if (Plugin::$plugin->sources->getEntrySource((int)$entry->sectionId) === null) {
+            return null;
+        }
+
+        return (int)$entry->getCanonicalId();
     }
 
     /**
@@ -244,6 +374,12 @@ class TagsController extends Controller
             Craft::$app->getSession()->setError('Swap failed.');
         }
         return $this->redirectToPostedUrl();
+    }
+
+    private function _reportCacheKey(string $token): string
+    {
+        // Keyed by user too, so a leaked token can't be used by someone else.
+        return 'tidytags.urlReport.' . (static::currentUser()?->id ?? 0) . '.' . preg_replace('/[^A-Za-z0-9_-]/', '', $token);
     }
 
     /**

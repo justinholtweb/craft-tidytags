@@ -215,7 +215,7 @@ foreach ([
     'a missing --into' => "tidytags/merge {$typo->id}",
     'a non-numeric ID' => "tidytags/merge --into={$manchester->id} abc",
     'an empty ID list' => "tidytags/merge --into={$manchester->id} ,",
-    'an unknown --format' => "tidytags/merge --into={$manchester->id} {$typo->id} --format=csv",
+    'an unknown --format' => "tidytags/merge --into={$manchester->id} {$typo->id} --format=xml",
 ] as $label => $cmd) {
     check("$label is a usage error (64)", function() use ($cmd) {
         [$code, , $err] = craftCmd($cmd);
@@ -232,7 +232,7 @@ check('no IDs at all is refused by Yii before the command runs (non-zero)', func
 
 $before = relationsTo([$typo->id, $manchester->id]);
 
-check('merging into something that is not a tag exits 65 and changes nothing', function() use ($typo, $before, $manchester) {
+check('merging into an entry outside a writable section exits 65 and changes nothing', function() use ($typo, $before, $manchester) {
     $entryId = (int)Entry::find()->status(null)->site('*')->unique()->select(['elements.id'])->scalar();
     [$code, , $err] = craftCmd("tidytags/merge --into=$entryId {$typo->id} --apply");
 
@@ -297,11 +297,40 @@ check('--apply merges: relations move, the duplicate row is dropped, the source 
     $owners = array_column($rels, 'sourceId');
     sort($owners);
 
-    return $code === 0 && str_contains($out, 'Merged 1 tag(s)')
+    return $code === 0 && str_contains($out, 'Merged 1 item(s)')
         && !tagExists($typo->id)
         && $owners === [$owner1->id, $owner2->id]
         && array_unique(array_column($rels, 'targetId')) === [$manchester->id]
         ?: "exit $code: $out " . json_encode($rels);
+});
+
+// -----------------------------------------------------------------------------------------------
+section('tidytags/entrify-check');
+
+check('--format=json reports each tag group with its unused count and Tags fields', function() use ($group) {
+    [$code, $out] = craftCmd('tidytags/entrify-check --format=json');
+    $json = json_decode($out, true);
+    $row = null;
+    foreach ($json['groups'] ?? [] as $g) {
+        if ($g['handle'] === $group->handle) {
+            $row = $g;
+        }
+    }
+
+    return $code === 0 && $row !== null && is_int($row['tags']) && is_int($row['unused'])
+        && is_int($row['duplicateClusters']) && is_array($row['fields']) ?: "exit $code: $out";
+});
+
+check('the table run ends with the commands to convert each group', function() use ($group) {
+    [$code, $out] = craftCmd('tidytags/entrify-check');
+
+    return $code === 0 && str_contains($out, "convert: php craft entrify/tags {$group->handle}") ?: "exit $code: $out";
+});
+
+check('--fail-on-issues exits 1 while a group still has unused tags', function() {
+    [$code] = craftCmd('tidytags/entrify-check --fail-on-issues');
+
+    return $code === 1 ?: "exit $code";
 });
 
 // -----------------------------------------------------------------------------------------------
@@ -336,7 +365,7 @@ check('--apply without --delete is a usage error (64)', function() use ($src) {
 check('--delete alone is a dry run: lists and deletes nothing', function() use ($src, $expectUnused) {
     [$code, $out] = craftCmd("tidytags/unused $src --delete");
 
-    return $code === 0 && str_contains($out, count($expectUnused) . ' unused tag(s) would be deleted')
+    return $code === 0 && str_contains($out, count($expectUnused) . ' unused item(s) would be deleted')
         && str_contains($out, 'Dry run')
         && count(array_filter($expectUnused, 'tagExists')) === count($expectUnused) ?: "exit $code: $out";
 });
@@ -359,7 +388,7 @@ check('deleteUnusedTags() keeps a tag that gained a relation after it was listed
 check('--delete --apply prunes the unused tags and nothing else', function() use ($src, $expectUnused, $manchester, $bayernFc, $foreign) {
     [$code, $out] = craftCmd("tidytags/unused $src --delete --apply");
 
-    return $code === 0 && str_contains($out, count($expectUnused) . ' unused tag(s) deleted')
+    return $code === 0 && str_contains($out, count($expectUnused) . ' unused item(s) deleted')
         && array_filter($expectUnused, 'tagExists') === []
         && tagExists($manchester->id) && tagExists($bayernFc->id)
         && tagExists($foreign->id) ?: "exit $code: $out";

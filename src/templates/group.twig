@@ -29,11 +29,17 @@
         {{ tt.badge(source.type, source.typeLabel) }}
         {% if not source.isWritable %}
             <span class="tidytags-note">
-                Read-only — rename, merge, and delete are disabled for entry-backed sources.
-                Manage these entries in their section.
+                Read-only — rename, merge and delete are off for this section. Allow them in the
+                Tidy Tags settings, or manage these entries in their section.
+            </span>
+        {% elseif source.softDeletes %}
+            <span class="tidytags-note">
+                Merged and deleted entries go to the trash and can be restored.
             </span>
         {% endif %}
     </div>
+
+    {{ tt.urlReportNotice() }}
 
     <form method="get" action="{{ cpUrl(basePath) }}" class="tidytags-toolbar">
         <div class="flex">
@@ -199,7 +205,9 @@ document.querySelectorAll('.tidytags-group [data-autosubmit]').forEach(function(
     btnDelete && btnDelete.addEventListener('click', function(){
         var sel = selected();
         if (!sel.length) return;
-        if (!confirm('Delete ' + sel.length + ' tag(s)? This cannot be undone.')) return;
+        if (!confirm({{ (source.softDeletes
+            ? 'Move {n} entry(s) to the trash?'
+            : 'Delete {n} tag(s)? This cannot be undone.')|json_encode|raw }}.replace('{n}', sel.length))) return;
         form.action = Craft.getActionUrl('tidytags/tags/delete');
         form.submit();
     });
@@ -226,7 +234,7 @@ document.querySelectorAll('.tidytags-group [data-autosubmit]').forEach(function(
         })
         .then(function(r){ return r.json(); })
         .then(function(j){
-            if (j.success) { Craft.cp.displayNotice('Tag renamed.'); location.reload(); }
+            if (j.success) { Craft.cp.displayNotice('Renamed.'); location.reload(); }
             else { Craft.cp.displayError(j.message || 'Rename failed.'); }
         });
     });
@@ -238,7 +246,7 @@ document.querySelectorAll('.tidytags-group [data-autosubmit]').forEach(function(
             return c.closest('tr').querySelector('.tidytags-title').textContent.trim();
         });
         var keepIndex = prompt(
-            'Which tag should be kept? Enter a number 1-' + sel.length + ':\n' +
+            'Which one should be kept? Enter a number 1-' + sel.length + ':\n' +
             titles.map(function(t, i){ return (i+1) + '. ' + t; }).join('\n')
         );
         keepIndex = parseInt(keepIndex, 10);
@@ -246,7 +254,10 @@ document.querySelectorAll('.tidytags-group [data-autosubmit]').forEach(function(
         var targetId = sel[keepIndex - 1].value;
         var sourceIds = sel.filter(function(c){ return c.value !== targetId; }).map(function(c){ return c.value; });
 
-        if (!confirm('Merge ' + sourceIds.length + ' tag(s) into "' + titles[keepIndex-1] + '"? Source tags will be deleted.')) return;
+        if (!confirm({{ (source.softDeletes
+            ? 'Merge {n} entry(s) into "{title}"? They will be moved to the trash, and you can download a list of the URLs they had.'
+            : 'Merge {n} tag(s) into "{title}"? Source tags will be deleted.')|json_encode|raw }}
+            .replace('{n}', sourceIds.length).replace('{title}', titles[keepIndex-1]))) return;
 
         var data = new FormData();
         data.append(Craft.csrfTokenName, Craft.csrfTokenValue);
@@ -260,7 +271,7 @@ document.querySelectorAll('.tidytags-group [data-autosubmit]').forEach(function(
         })
         .then(function(r){ return r.json(); })
         .then(function(j){
-            if (j.success) { Craft.cp.displayNotice('Tags merged.'); location.reload(); }
+            if (j.success) { Craft.cp.displayNotice('Merged.'); location.reload(); }
             else { Craft.cp.displayError(j.message || 'Merge failed.'); }
         });
     });
