@@ -659,4 +659,15 @@ class TagsControllerTest extends PluginTestCase
         }
         self::assertSame('Cat', Tag::find()->id($tag->id)->siteId($second->id)->status(null)->one()->title);
     }
+
+    public function testSwapRefusesIdsThatDontResolve(): void
+    {
+        $group = Fixtures::createTagGroup('animals');
+        $target = Fixtures::createTag($group, 'Cat');
+
+        $this->preparePostRequest(['sourceIds' => [999999], 'targetId' => $target->id]);
+
+        $this->expectException(ForbiddenHttpException::class);
+        $this->controller()->actionSwap();
+    }
 }

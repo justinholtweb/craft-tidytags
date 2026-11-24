@@ -355,7 +355,9 @@ class TagsController extends Controller
         $elementsService = Craft::$app->getElements();
         foreach (array_unique([...$sourceIds, $targetId]) as $id) {
             $element = $elementsService->getElementById($id);
-            if ($element !== null && !Plugin::$plugin->sources->isSourceElement($element)) {
+            // Fail closed: an ID that doesn't resolve (trashed, a draft, nothing) is refused too,
+            // or swap would re-point relations from elements outside the plugin's remit.
+            if ($element === null || !Plugin::$plugin->sources->isSourceElement($element)) {
                 throw new ForbiddenHttpException('Swap only works between Tidy Tags source elements.');
             }
         }

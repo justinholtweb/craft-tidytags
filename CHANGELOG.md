@@ -18,6 +18,10 @@
 - The merge action's JSON now includes `message`, `urls` and `urlReport` as well as `success`.
 - Console messages say "item(s)" instead of "tag(s)" where entries can be involved. `tidytags/merge` now accepts `--format=csv`.
 
+### Security
+
+- Swap refused tags and entries outside Tidy Tags' sources, but let through IDs that didn't resolve to an element (a trashed entry, for example), re-pointing their relations. It now refuses those too.
+
 ### Deprecated
 
 - `Tags::renameTag()`, `deleteTag()`, `deleteTags()`, `mergeTags()` and `deleteUnusedTags()`. Use the element-agnostic methods above. The old names will be removed in 6.0.
