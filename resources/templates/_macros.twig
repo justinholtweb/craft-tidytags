@@ -1,0 +1,67 @@
+{# Shared markup for the Tidy Tags CP screens. Styling lives in css/tidytags.css. #}
+
+{# A source-type pill. #}
+{% macro badge(label = null) %}
+    <span class="tidytags-badge tidytags-badge--entry">{{ label ?? 'Entries'|t('tidytags') }}</span>
+{% endmacro %}
+
+{#
+ # Numbered pager. `pagination` needs `page` and `totalPages`; `params` are the query params
+ # every page link keeps (search, site, scope and so on).
+ #}
+{% macro pager(pagination, baseUrl, params = {}) %}
+    {% if pagination.totalPages > 1 %}
+        {% set page = pagination.page %}
+        {% set last = pagination.totalPages %}
+        {% set from = max(1, page - 2) %}
+        {% set to = min(last, page + 2) %}
+        <nav class="tidytags-pagination" aria-label="{{ 'Pagination'|t('tidytags') }}">
+            {% if page > 1 %}
+                <a class="tidytags-page" href="{{ url(baseUrl, params|merge({ page: page - 1 })) }}" rel="prev">{{ 'Previous'|t('tidytags') }}</a>
+            {% endif %}
+            {% if from > 1 %}
+                <a class="tidytags-page" href="{{ url(baseUrl, params|merge({ page: 1 })) }}">1</a>
+                {% if from > 2 %}<span class="tidytags-page-gap">…</span>{% endif %}
+            {% endif %}
+            {% for n in from..to %}
+                {% if n == page %}
+                    <span class="tidytags-page is-current" aria-current="page">{{ n }}</span>
+                {% else %}
+                    <a class="tidytags-page" href="{{ url(baseUrl, params|merge({ page: n })) }}">{{ n }}</a>
+                {% endif %}
+            {% endfor %}
+            {% if to < last %}
+                {% if to < last - 1 %}<span class="tidytags-page-gap">…</span>{% endif %}
+                <a class="tidytags-page" href="{{ url(baseUrl, params|merge({ page: last })) }}">{{ last }}</a>
+            {% endif %}
+            {% if page < last %}
+                <a class="tidytags-page" href="{{ url(baseUrl, params|merge({ page: page + 1 })) }}" rel="next">{{ 'Next'|t('tidytags') }}</a>
+            {% endif %}
+        </nav>
+    {% endif %}
+{% endmacro %}
+
+{# After a merge that retired URLs, offers the CSV of old → new URLs. #}
+{% macro urlReportNotice(report) %}
+    {% if report %}
+        <div class="tidytags-callout tidytags-url-report" role="status">
+            <p>
+                {{ 'The merge retired {count, plural, =1{# URL} other{# URLs}}. Redirect them to the kept entry so links and search results keep working.'|t('tidytags', { count: report.count }) }}
+                <a class="btn small" href="{{ report.url }}">{{ 'Download CSV'|t('tidytags') }}</a>
+            </p>
+        </div>
+    {% endif %}
+{% endmacro %}
+
+{# A site <select> that submits its form on change. #}
+{% macro siteSelect(sites, selectedSiteId, emptyLabel) %}
+    <label class="tidytags-inline-label">
+        {{ 'Site'|t('tidytags') }}
+        <select name="siteId" data-tidytags-autosubmit>
+            <option value="">{{ emptyLabel }}</option>
+            {% for site in sites %}
+                <option value="{{ site.id }}" {{ site.id == selectedSiteId ? 'selected' }}>{{ site.getName() }}</option>
+            {% endfor %}
+        </select>
+    </label>
+{% endmacro %}

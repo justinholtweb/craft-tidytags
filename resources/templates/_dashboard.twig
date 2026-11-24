@@ -1,0 +1,43 @@
+{% import "tidytags/_macros" as tt %}
+<div class="tidytags-dashboard">
+    {% if rows|length == 0 %}
+        <p>
+            {{ 'No tag-like sections yet. Mark the channel sections that hold your vocabularies in'|t('tidytags') }}
+            <a href="{{ settingsUrl }}">{{ 'Settings → Tidy Tags'|t('tidytags') }}</a>.
+        </p>
+    {% else %}
+        <table class="tidytags-table">
+            <thead>
+                <tr>
+                    <th scope="col">{{ 'Source'|t('tidytags') }}</th>
+                    <th scope="col">{{ 'Total'|t('tidytags') }}</th>
+                    {% for site in sites %}
+                        <th scope="col">{{ site.getName() }}</th>
+                    {% endfor %}
+                    <th scope="col"><span class="visually-hidden">{{ 'Actions'|t('tidytags') }}</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                    {% set source = row.source %}
+                    <tr>
+                        <th scope="row">
+                            <strong>{{ source.name }}</strong>
+                            {{ tt.badge() }}
+                            {% if not source.isWritable %}
+                                <span class="tidytags-note" title="{{ 'Allow rename, merge and delete for this section in the Tidy Tags settings.'|t('tidytags') }}">{{ 'read-only'|t('tidytags') }}</span>
+                            {% endif %}
+                            <br>
+                            <code class="tidytags-handle">{{ source.handle }}</code>
+                        </th>
+                        <td>{{ row.total|number }}</td>
+                        {% for site in sites %}
+                            <td>{{ (row.countsBySite[site.id] ?? 0)|number }}</td>
+                        {% endfor %}
+                        <td><a class="btn small" href="{{ row.url }}">{{ 'Manage'|t('tidytags') }}</a></td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+</div>

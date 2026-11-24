@@ -1,0 +1,142 @@
+{% import "tidytags/_macros" as tt %}
+
+{% macro renderItem(item) %}
+    {% import "tidytags/_macros" as tt %}
+    <div class="tidytags-item">
+        <span class="tidytags-item-title">
+            {% if item.cpEditUrl %}
+                <a href="{{ item.cpEditUrl }}" target="_blank" rel="noopener" title="{{ 'Open this entry in a new tab'|t('tidytags') }}">
+                    <strong>{{ item.title }}</strong>
+                </a>
+            {% else %}
+                <strong>{{ item.title }}</strong>
+            {% endif %}
+            {% if item.differentiator %}
+                <span class="tidytags-diff">({{ item.differentiator }})</span>
+            {% endif %}
+        </span>
+        <span class="tidytags-item-meta">
+            {{ 'in'|t('tidytags') }} <a href="{{ cpUrl(item.sourceCpPath) }}">{{ item.sourceName }}</a>
+            <span class="tidytags-item-id">#{{ item.id }}</span>
+        </span>
+        {% if item.displayValues|length %}
+            <ul class="tidytags-display">
+                {% for handle, value in item.displayValues %}
+                    <li><strong>{{ handle }}:</strong> {{ value }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+        <div class="tidytags-usages">
+            <button type="button" class="btn small tidytags-show-usages" data-element-id="{{ item.id }}" aria-expanded="false">
+                {{ 'Show usages'|t('tidytags') }}
+            </button>
+            <div class="tidytags-usages-list" hidden></div>
+        </div>
+    </div>
+{% endmacro %}
+
+{#
+ # One cluster as a form posting to merge or swap. The keep/move controls and the submit button
+ # only render when the user may submit.
+ #}
+{% macro clusterForm(cluster, action, actionUrl, returnUrl, canSubmit, confirmText, buttonLabel, note = null) %}
+    <form method="post" action="{{ actionUrl }}" class="tidytags-cluster" data-tidytags-confirm="{{ confirmText }}">
+        {{ csrfInput() }}
+        {{ redirectInput(returnUrl) }}
+        <ul class="tidytags-cluster-items">
+            {% for item in cluster %}
+                <li class="tidytags-cluster-item">
+                    {% if canSubmit %}
+                        <div class="tidytags-cluster-controls">
+                            <label><input type="radio" name="targetId" value="{{ item.id }}" {{ loop.first ? 'checked' }}> {{ 'Keep'|t('tidytags') }}</label>
+                            <label><input type="checkbox" name="sourceIds[]" value="{{ item.id }}" {{ not loop.first ? 'checked' }}> {{ (action == 'merge' ? 'Merge' : 'Move')|t('tidytags') }}</label>
+                        </div>
+                    {% endif %}
+                    {{ _self.renderItem(item) }}
+                </li>
+            {% endfor %}
+        </ul>
+        {% if canSubmit %}
+            <div class="tidytags-cluster-actions">
+                <button type="submit" class="btn small{{ action == 'merge' ? ' submit' }}">{{ buttonLabel }}</button>
+                {% if note %}<span class="tidytags-note">{{ note }}</span>{% endif %}
+            </div>
+        {% endif %}
+    </form>
+{% endmacro %}
+
+<div class="tidytags-duplicates" data-tidytags-duplicates data-usages-url="{{ actions.usages }}">
+    {{ tt.urlReportNotice(urlReport) }}
+
+    <form method="get" action="{{ baseUrl }}" class="tidytags-toolbar">
+        <input type="hidden" name="scope" value="{{ scope }}">
+        {{ tt.siteSelect(sites, selectedSiteId, 'Primary site'|t('tidytags')) }}
+        <label class="tidytags-inline-label">
+            {{ 'Similarity threshold'|t('tidytags') }}
+            <input type="number" name="threshold" value="{{ threshold }}" min="0" max="{{ maxThreshold }}" size="3">
+        </label>
+        <button type="submit" class="btn submit">{{ 'Scan'|t('tidytags') }}</button>
+        <p class="tidytags-note">
+            {{ 'Lower threshold = stricter matching. Default is 2 (catches typos and plurals). The threshold only applies to the fuzzy match strategy.'|t('tidytags') }}
+            <a href="{{ settingsUrl }}">{{ 'Differentiator and display fields are set per section in Settings → Tidy Tags.'|t('tidytags') }}</a>
+        </p>
+    </form>
+
+    <nav class="tidytags-tabs" aria-label="{{ 'Scope'|t('tidytags') }}">
+        {% for key, label in { within: 'Within source'|t('tidytags'), cross: 'Across sources'|t('tidytags') } %}
+            <a href="{{ url(baseUrl, filterParams|merge({ scope: key })) }}"
+               class="tidytags-tab{{ scope == key ? ' is-active' }}"
+               {% if scope == key %}aria-current="page"{% endif %}>{{ label }}</a>
+        {% endfor %}
+    </nav>
+
+    {% if scope == 'cross' %}
+        <p class="tidytags-note">
+            {{ 'Items that appear in more than one section — usually an editor creating a Topic for something already kept as a Team or Competition. Swap re-points relations from one entry to another; the entries themselves are left for you to delete once you’ve checked.'|t('tidytags') }}
+        </p>
+    {% endif %}
+
+    {% if pagination.total == 0 %}
+        <p>
+            {% if scope == 'cross' %}
+                {{ 'No cross-source duplicates found at threshold {threshold}.'|t('tidytags', { threshold: threshold }) }}
+            {% else %}
+                {{ 'No duplicate clusters found at threshold {threshold}.'|t('tidytags', { threshold: threshold }) }}
+            {% endif %}
+        </p>
+    {% else %}
+        <p class="tidytags-page-summary">
+            {{ 'Showing clusters {first}–{last} of {total}'|t('tidytags', {
+                first: pagination.first|number,
+                last: pagination.last|number,
+                total: pagination.total|number,
+            }) }}
+        </p>
+
+        {% set previousUid = null %}
+        {% for entry in clusters %}
+            {% set source = entry.source %}
+            {% if source and source.uid != previousUid %}
+                <h3 class="tidytags-cluster-heading"><span>{{ source.name }}</span> {{ tt.badge() }}</h3>
+                {% set previousUid = source.uid %}
+            {% endif %}
+
+            {% if scope == 'cross' %}
+                {{ _self.clusterForm(entry.items, 'swap', actions.swap, returnUrl, canManage,
+                    'Swap selected items into the target? Relations will be re-pointed; the items themselves are left in place.'|t('tidytags'),
+                    'Swap relations'|t('tidytags')) }}
+            {% elseif source.isWritable %}
+                {{ _self.clusterForm(entry.items, 'merge', actions.merge, returnUrl, canManage and canDelete,
+                    'Merge selected entries into the target? They will be moved to the trash, and you can download a list of the URLs they had.'|t('tidytags'),
+                    'Merge cluster'|t('tidytags')) }}
+            {% else %}
+                {{ _self.clusterForm(entry.items, 'swap', actions.swap, returnUrl, canManage,
+                    'Re-point relations from the selected entries to the target? The entries are left in place — delete them by hand once you’ve checked.'|t('tidytags'),
+                    'Swap relations'|t('tidytags'),
+                    'Read-only section — Tidy Tags can swap relations but won’t delete entries.'|t('tidytags')) }}
+            {% endif %}
+        {% endfor %}
+
+        {{ tt.pager(pagination, baseUrl, filterParams) }}
+    {% endif %}
+</div>

@@ -1,58 +1,78 @@
 {
     "name": "justinholtweb/craft-tidytags",
-    "description": "Tag manager for Craft CMS 5 with multi-site support and duplicate detection.",
+    "description": "Keeps your Craft CMS taxonomy clean: duplicate detection, merge, rename and pruning for tag-like entry sections, across every site.",
+    "version": "6.0.0-beta.1",
     "type": "craft-plugin",
-    "license": "proprietary",
-    "version": "5.4.0",
     "keywords": [
+        "craft",
+        "cms",
         "craftcms",
+        "craft-plugin",
         "tags",
-        "tag-manager"
+        "taxonomy",
+        "duplicates",
+        "laravel"
+    ],
+    "license": "proprietary",
+    "minimum-stability": "beta",
+    "prefer-stable": true,
+    "authors": [
+        {
+            "name": "Justin Holt",
+            "homepage": "https://github.com/justinholtweb"
+        }
     ],
     "support": {
-        "issues": "https://github.com/justinholtweb/craft-tidytags/issues"
+        "issues": "https://github.com/justinholtweb/craft-tidytags/issues",
+        "source": "https://github.com/justinholtweb/craft-tidytags",
+        "docs": "https://github.com/justinholtweb/craft-tidytags/blob/6.0.0/README.md"
     },
-    "minimum-stability": "dev",
-    "prefer-stable": true,
     "require": {
-        "php": ">=8.2",
-        "craftcms/cms": "^5.0.0"
+        "php": "^8.5",
+        "craftcms/cms": "^6.0.0-beta.1"
+    },
+    "require-dev": {
+        "larastan/larastan": "^3.13",
+        "laravel/pint": "^1.22",
+        "orchestra/testbench": "^11.0",
+        "pestphp/pest": "^5.0",
+        "pestphp/pest-plugin-laravel": "^5.0",
+        "phpstan/phpstan": "^2.1"
     },
     "autoload": {
         "psr-4": {
-            "justinholtweb\\tidytags\\": "src/"
+            "JustinHoltWeb\\TidyTags\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "justinholtweb\\tidytagstests\\": "tests/"
+            "JustinHoltWeb\\TidyTags\\Tests\\": "tests/"
         }
     },
     "scripts": {
-        "test": "codecept run unit"
-    },
-    "extra": {
-        "handle": "tidytags",
-        "name": "Tidy Tags",
-        "developer": "Justin Holt",
-        "developerUrl": "https://justinholt.dev",
-        "documentationUrl": "https://github.com/justinholtweb/craft-tidytags",
-        "class": "justinholtweb\\tidytags\\Plugin"
-    },
-    "require-dev": {
-        "codeception/codeception": "^5.0",
-        "codeception/module-asserts": "^3.0",
-        "codeception/module-yii2": "^1.1",
-        "codeception/module-datafactory": "^3.0",
-        "codeception/module-phpbrowser": "^3.0",
-        "codeception/module-rest": "^3.0",
-        "vlucas/phpdotenv": "^5.4",
-        "fakerphp/faker": "^1.19"
+        "test": "pest",
+        "phpstan": "phpstan analyse --memory-limit=1G",
+        "check-cs": "pint --test",
+        "fix-cs": "pint"
     },
     "config": {
         "allow-plugins": {
-            "yiisoft/yii2-composer": true,
-            "craftcms/plugin-installer": true
-        }
+            "craftcms/plugin-installer": true,
+            "pestphp/pest-plugin": true
+        },
+        "platform": {
+            "php": "8.5"
+        },
+        "sort-packages": true
+    },
+    "extra": {
+        "name": "Tidy Tags",
+        "handle": "tidytags",
+        "developer": "Justin Holt",
+        "developerUrl": "https://justinholt.dev",
+        "description": "Keeps your Craft CMS taxonomy clean: duplicate detection, merge, rename and pruning for tag-like entry sections.",
+        "documentationUrl": "https://github.com/justinholtweb/craft-tidytags/blob/6.0.0/README.md",
+        "changelogUrl": "https://raw.githubusercontent.com/justinholtweb/craft-tidytags/6.0.0/CHANGELOG.md",
+        "class": "JustinHoltWeb\\TidyTags\\Plugin"
     }
 }

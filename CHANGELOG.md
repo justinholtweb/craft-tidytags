@@ -1,5 +1,33 @@
 # Changelog
 
+## 6.0.0-beta.1 - Unreleased
+
+Tidy Tags for Craft CMS 6, rebuilt as a native Craft 6 plugin. It runs on Laravel and has no
+dependency on the Yii 2 adapter. Craft 6 has no Tags, so every source is a tag-like entry section.
+Craft 6 is in beta, and so is this release. Update to Tidy Tags 5.5 before upgrading Craft, and see
+[the upgrade guide](https://github.com/justinholtweb/craft-tidytags/blob/6.0.0/UPGRADING.md).
+
+### Added
+
+- Per-section differentiator and display fields are set on the settings screen, under each
+  tag-like section.
+
+### Changed
+
+- Sources are entry sections only. Tag groups, and `tidytags/entrify-check`, stay in 5.x.
+- Console commands are `tidytags:duplicates`, `tidytags:merge` and `tidytags:unused`. The 5.x names
+  (`tidytags/duplicates` and so on) still work. Usage errors and unmergeable items exit `2`.
+- The "did you mean?" warning runs on the title field of entries in tag-like sections, on the
+  entry's edit page. The slideout an Entries field opens for *New entry* isn't covered yet.
+- Control panel actions are CP routes (`admin/tidytags/tags/merge` and so on).
+- Scans are cached until the next entry save or delete, through a scan generation key.
+
+### Removed
+
+- Tag groups as sources, `tidytags/entrify-check`, and the deprecated `Tags::renameTag()`,
+  `deleteTag()`, `deleteTags()`, `mergeTags()` and `deleteUnusedTags()`. The service is now
+  `JustinHoltWeb\TidyTags\Services\Items`.
+
 ## 5.5.0 - Unreleased
 
 ### Added

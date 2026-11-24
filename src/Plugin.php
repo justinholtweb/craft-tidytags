@@ -1,213 +1,216 @@
 <?php
 
-namespace justinholtweb\tidytags;
+declare(strict_types=1);
 
-use Craft;
-use craft\base\Model;
-use craft\base\Plugin as BasePlugin;
-use craft\events\RegisterUrlRulesEvent;
-use craft\events\RegisterUserPermissionsEvent;
-use craft\events\TemplateEvent;
-use craft\services\UserPermissions;
-use craft\web\UrlManager;
-use craft\web\View;
-use justinholtweb\tidytags\assetbundles\TidyTagsAsset;
-use justinholtweb\tidytags\models\Settings;
-use justinholtweb\tidytags\services\DuplicateDetector;
-use justinholtweb\tidytags\services\Sources;
-use justinholtweb\tidytags\services\Tags;
-use justinholtweb\tidytags\services\TitleMatcher;
-use Throwable;
-use yii\base\Event;
+namespace JustinHoltWeb\TidyTags;
+
+use CraftCms\Cms\Cp\Data\NavItem;
+use CraftCms\Cms\Element\Events\ElementDeleted;
+use CraftCms\Cms\Element\Events\ElementSaved;
+use CraftCms\Cms\Plugin\Plugin as BasePlugin;
+use CraftCms\Cms\Section\Enums\SectionType;
+use CraftCms\Cms\Support\Facades\Sections;
+use CraftCms\Cms\Ui\Controls\Choice;
+use CraftCms\Cms\Ui\Controls\Number;
+use CraftCms\Cms\Ui\Controls\Textarea;
+use CraftCms\Cms\Ui\Enums\ChoicePresentation;
+use CraftCms\Cms\Ui\Nodes\Callout;
+use CraftCms\Cms\Ui\Nodes\Field;
+use CraftCms\Cms\Ui\Nodes\Heading;
+use CraftCms\Cms\Ui\Ui;
+use CraftCms\Cms\Ui\UiContext;
+use CraftCms\Cms\User\Data\Permission;
+use JustinHoltWeb\TidyTags\Console\Commands\DuplicatesCommand;
+use JustinHoltWeb\TidyTags\Console\Commands\MergeCommand;
+use JustinHoltWeb\TidyTags\Console\Commands\UnusedCommand;
+use JustinHoltWeb\TidyTags\Listeners\ForgetScans;
+use JustinHoltWeb\TidyTags\Models\Settings;
+use JustinHoltWeb\TidyTags\Services\DuplicateDetector;
+use JustinHoltWeb\TidyTags\Services\Items;
+use JustinHoltWeb\TidyTags\Services\Sources;
+use JustinHoltWeb\TidyTags\Services\TitleMatcher;
+use Override;
+
+use function CraftCms\Cms\currentUser;
+use function CraftCms\Cms\t;
 
 /**
- * Tidy Tags plugin.
+ * Tidy Tags: keeps a site's taxonomy clean. Finds near-duplicate titles in tag-like entry
+ * sections, and renames, merges and prunes their entries across every site.
  *
- * @property-read Tags $tags
- * @property-read Sources $sources
- * @property-read DuplicateDetector $duplicateDetector
- * @property-read TitleMatcher $titleMatcher
+ * Craft 6 has no Tags, so every source is an entry section an admin marks as tag-like
+ * (usually the output of Craft 5's `entrify/tags`).
+ *
  * @method Settings getSettings()
  */
 class Plugin extends BasePlugin
 {
-    /**
-     * Rename tags, merge tags, and swap relations between source elements.
-     * Merge additionally requires {@see PERMISSION_DELETE_TAGS}.
-     */
-    public const PERMISSION_MANAGE_TAGS = 'tidytags-manageTags';
+    /** Core's own plugin-access permission. Browsing, scanning and usage lookups. */
+    public const string PERMISSION_ACCESS = 'accessPlugin-tidytags';
 
-    /**
-     * Delete tags, either directly or as the second half of a merge.
-     */
-    public const PERMISSION_DELETE_TAGS = 'tidytags-deleteTags';
+    /** Rename items and swap relations. Same key as 5.x, so grants carry over. */
+    public const string PERMISSION_MANAGE_TAGS = 'tidytags-manageTags';
 
-    public static ?Plugin $plugin = null;
+    /** Delete items; merge needs this and manage. Same key as 5.x. */
+    public const string PERMISSION_DELETE_TAGS = 'tidytags-deleteTags';
 
+    /** Tidy Tags has no tables. */
     public string $schemaVersion = '1.0.0';
+
+    /**
+     * Settings are read with the 5.5 keys (`writableSectionUids` first appeared there), so an
+     * upgrade comes from 5.5 or later.
+     */
+    public string $minVersionRequired = '5.5.0';
+
     public bool $hasCpSection = true;
+
     public bool $hasCpSettings = true;
 
-    private ?Settings $_overlaidSettings = null;
+    protected array $styles = [
+        __DIR__.'/../resources/css/tidytags.css' => 'css/tidytags.css',
+    ];
 
-    /**
-     * @inheritdoc
-     */
-    public function init(): void
+    protected array $scripts = [
+        __DIR__.'/../resources/js/tidytags.js' => 'js/tidytags.js',
+    ];
+
+    protected array $commands = [
+        DuplicatesCommand::class,
+        MergeCommand::class,
+        UnusedCommand::class,
+    ];
+
+    protected array $events = [
+        ElementSaved::class => ForgetScans::class,
+        ElementDeleted::class => ForgetScans::class,
+    ];
+
+    #[Override]
+    protected static function createSettings(): Settings
     {
-        parent::init();
-        self::$plugin = $this;
-
-        $this->setComponents([
-            'tags' => Tags::class,
-            'sources' => Sources::class,
-            'duplicateDetector' => DuplicateDetector::class,
-            'titleMatcher' => TitleMatcher::class,
-        ]);
-
-        $this->_registerCpUrlRules();
-        $this->_registerPermissions();
-        $this->_registerCpAssetBundle();
+        return new Settings;
     }
 
-    /**
-     * @inheritdoc
-     */
-    public function getCpNavItem(): ?array
+    public function register(): void
     {
-        $item = parent::getCpNavItem();
-        $item['label'] = 'Tidy Tags';
-        $item['url'] = 'tidytags';
-        $item['subnav'] = [
-            'dashboard' => ['label' => 'Dashboard', 'url' => 'tidytags'],
-            'duplicates' => ['label' => 'Duplicates', 'url' => 'tidytags/duplicates'],
-        ];
-        return $item;
-    }
+        parent::register();
 
-    /**
-     * @inheritdoc
-     */
-    protected function createSettingsModel(): ?Model
-    {
-        return new Settings();
-    }
-
-    /**
-     * Overlays values from `config/tidytags.php` (if present) on top of the
-     * saved settings model so operators can drive `tagLikeSectionUids` from
-     * env-aware config alongside the CP settings screen.
-     *
-     * @return Settings|null
-     */
-    public function getSettings(): ?Model
-    {
-        if ($this->_overlaidSettings !== null) {
-            return $this->_overlaidSettings;
+        foreach ([Sources::class, Items::class, DuplicateDetector::class] as $service) {
+            $this->app->singleton($service);
         }
 
-        $settings = parent::getSettings();
-        if ($settings === null) {
+        $this->app->bind(TitleMatcher::class, fn () => TitleMatcher::fromSettings($this->getSettings()));
+    }
+
+    public function boot(): void
+    {
+        $this->app->bind(Settings::class, fn () => $this->getSettings());
+    }
+
+    #[Override]
+    protected function getPermissions(): array
+    {
+        return [
+            new Permission(
+                key: self::PERMISSION_MANAGE_TAGS,
+                label: t('Rename and merge tag-like entries, and swap relations', category: 'tidytags'),
+                nested: collect([
+                    new Permission(
+                        key: self::PERMISSION_DELETE_TAGS,
+                        label: t('Delete tag-like entries', category: 'tidytags'),
+                    ),
+                ]),
+            ),
+        ];
+    }
+
+    #[Override]
+    public function getCpNavItem(): NavItem|array|null
+    {
+        $item = parent::getCpNavItem();
+        $user = currentUser();
+
+        if (! $item instanceof NavItem || $user === null || ! $user->can(self::PERMISSION_ACCESS)) {
             return null;
         }
 
-        $fileConfig = Craft::$app->getConfig()->getConfigFromFile('tidytags');
-        foreach ($fileConfig as $name => $value) {
-            if ($settings->canSetProperty($name)) {
-                $settings->$name = $value;
-            }
-        }
-
-        /** @var Settings $settings */
-        $this->_overlaidSettings = $settings;
-        return $settings;
-    }
-
-    /**
-     * @inheritdoc
-     */
-    protected function settingsHtml(): ?string
-    {
-        $sources = $this->sources->getAllSources();
-        $fieldsBySourceUid = [];
-        foreach ($sources as $source) {
-            $fieldsBySourceUid[$source->uid] = $this->sources->getAvailableFields($source);
-        }
-
-        return Craft::$app->getView()->renderTemplate('tidytags/_settings', [
-            'settings' => $this->getSettings(),
-            'sections' => Craft::$app->getEntries()->getAllSections(),
-            'sources' => $sources,
-            'fieldsBySourceUid' => $fieldsBySourceUid,
+        return $item->subnav([
+            'dashboard' => new NavItem()->label(t('Dashboard', category: 'tidytags'))->href('tidytags'),
+            'duplicates' => new NavItem()->label(t('Duplicates', category: 'tidytags'))->href('tidytags/duplicates'),
         ]);
     }
 
-    /**
-     * Registers CP URL rules for the dashboard, duplicates, and per-source views.
-     */
-    private function _registerCpUrlRules(): void
+    #[Override]
+    public function settingsUi(UiContext $context = new UiContext): ?Ui
     {
-        Event::on(
-            UrlManager::class,
-            UrlManager::EVENT_REGISTER_CP_URL_RULES,
-            function(RegisterUrlRulesEvent $event) {
-                $event->rules['tidytags'] = 'tidytags/dashboard/index';
-                $event->rules['tidytags/duplicates'] = 'tidytags/dashboard/duplicates';
-                $event->rules['tidytags/group/<groupId:\d+>'] = 'tidytags/sources/group';
-                $event->rules['tidytags/group/<groupId:\d+>/site/<siteId:\d+>'] = 'tidytags/sources/group';
-                $event->rules['tidytags/section/<sectionId:\d+>'] = 'tidytags/sources/section';
-                $event->rules['tidytags/section/<sectionId:\d+>/site/<siteId:\d+>'] = 'tidytags/sources/section';
+        $channels = [];
+        foreach (Sections::getAllSections() as $section) {
+            if ($section->type === SectionType::Channel) {
+                $channels[] = ['label' => "{$section->name} ({$section->handle})", 'value' => $section->uid];
             }
-        );
+        }
+
+        $nodes = [
+            Heading::make('tidytags-matching', t('Matching', category: 'tidytags'))
+                ->description(t('How Tidy Tags decides that two titles name the same thing. Pick the strategy that describes your titles.', category: 'tidytags')),
+            Field::make(t('Match strategy', category: 'tidytags'), Choice::make('matchStrategy')->options([
+                ['label' => t('Fuzzy — tolerate typos (default)', category: 'tidytags'), 'value' => TitleMatcher::STRATEGY_FUZZY],
+                ['label' => t('Strict — affixes and qualifiers, no typo tolerance', category: 'tidytags'), 'value' => TitleMatcher::STRATEGY_STRICT],
+            ]))->instructions(t('**Fuzzy** suits free-text tags typed by editors, where duplicates are misspellings (`Manchestor` → `Manchester`). **Strict** suits controlled vocabularies of proper nouns — clubs, competitions, places, people — where `FC Bayern Munich` and `Bayern Munich` are the same thing but `Arsenal` and `Arsenal Women` are not.', category: 'tidytags')),
+            Field::make(t('Affix tokens', category: 'tidytags'), Textarea::make('affixTokens')->rows(4)->monospace())
+                ->instructions(t('Strict only. Words removed from the start and end of a title before comparing — one per line, or comma separated.', category: 'tidytags')),
+            Field::make(t('Qualifier tokens', category: 'tidytags'), Textarea::make('qualifierTokens')->rows(6)->monospace())
+                ->instructions(t('Strict only. Words that make two otherwise-matching titles different things. When one title has one and the other doesn’t, they’re not duplicates. Curate this against your own titles.', category: 'tidytags')),
+
+            Heading::make('tidytags-sources', t('Tag-like sections', category: 'tidytags'))
+                ->description(t('Channel sections Tidy Tags treats as vocabularies — typically the sections your tag groups became. They’re read-only until you also allow rename, merge and delete.', category: 'tidytags')),
+        ];
+
+        if ($channels === []) {
+            $nodes[] = Callout::make('tidytags-no-channels', t('No channel sections exist yet.', category: 'tidytags'));
+        } else {
+            $nodes[] = Field::make(t('Tag-like sections', category: 'tidytags'), Choice::make('tagLikeSectionUids')
+                ->options($channels)->multiple()->presentation(ChoicePresentation::Checkboxes))
+                ->instructions(t('Shown on the dashboard, scanned for duplicates, and checked by the “did you mean?” warning on entry titles.', category: 'tidytags'));
+            $nodes[] = Field::make(t('Allow rename, merge and delete', category: 'tidytags'), Choice::make('writableSectionUids')
+                ->options($channels)->multiple()->presentation(ChoicePresentation::Checkboxes))
+                ->instructions(t('Sections whose entries Tidy Tags may rename, merge and delete. Merged and deleted entries go to the trash. Sections ticked here but not above are ignored.', category: 'tidytags'));
+        }
+
+        $nodes = [...$nodes, ...$this->fieldConfigNodes()];
+
+        $nodes[] = Heading::make('tidytags-pages', t('Paging', category: 'tidytags'));
+        $nodes[] = Field::make(t('Items per page', category: 'tidytags'), Number::make('pageSize')->min(1)->max(1000))->required();
+        $nodes[] = Field::make(t('Duplicate clusters per page', category: 'tidytags'), Number::make('duplicatesPageSize')->min(1)->max(500))->required();
+
+        return Ui::make($nodes);
     }
 
     /**
-     * Registers the permissions that gate every mutation. Plugin access alone
-     * only allows browsing sources, scanning for duplicates and viewing usages.
+     * Per-section differentiator and display fields, for each configured tag-like section.
+     *
+     * @return list<Heading|Field>
      */
-    private function _registerPermissions(): void
+    private function fieldConfigNodes(): array
     {
-        Event::on(
-            UserPermissions::class,
-            UserPermissions::EVENT_REGISTER_PERMISSIONS,
-            function(RegisterUserPermissionsEvent $event) {
-                $event->permissions[] = [
-                    'heading' => 'Tidy Tags',
-                    'permissions' => [
-                        self::PERMISSION_MANAGE_TAGS => [
-                            'label' => 'Rename and merge tags and tag-like entries, and swap relations',
-                            'nested' => [
-                                self::PERMISSION_DELETE_TAGS => [
-                                    'label' => 'Delete tags and tag-like entries',
-                                ],
-                            ],
-                        ],
-                    ],
-                ];
-            }
-        );
-    }
+        $sources = $this->app->make(Sources::class);
+        $nodes = [];
 
-    /**
-     * Registers the CP asset bundle so the "did you mean" duplicate warning
-     * JavaScript runs on every control panel page. It hooks native Tags
-     * fields and the title field of entry editors; the server decides whether
-     * an entry is in a tag-like section, and the JS stops asking if it isn't.
-     */
-    private function _registerCpAssetBundle(): void
-    {
-        Event::on(
-            View::class,
-            View::EVENT_BEFORE_RENDER_PAGE_TEMPLATE,
-            function(TemplateEvent $event) {
-                if (Craft::$app->getRequest()->getIsCpRequest()) {
-                    try {
-                        Craft::$app->getView()->registerAssetBundle(TidyTagsAsset::class);
-                    } catch (Throwable $e) {
-                        Craft::error('Failed to register TidyTagsAsset: ' . $e->getMessage(), __METHOD__);
-                    }
-                }
+        foreach ($sources->getAllSources() as $source) {
+            $fields = [['label' => t('None', category: 'tidytags'), 'value' => '']];
+            foreach ($sources->getAvailableFields($source) as $field) {
+                $fields[] = ['label' => "{$field->name} ({$field->handle})", 'value' => (string) $field->handle];
             }
-        );
+
+            $nodes[] = Heading::make('tidytags-fields-'.$source->uid, t('{name}: fields', ['name' => $source->name], category: 'tidytags'));
+            $nodes[] = Field::make(t('Differentiator field', category: 'tidytags'), Choice::make(['sourceFieldConfig', $source->uid, 'differentiator'])->options($fields))
+                ->instructions(t('Items with the same title but different values here are not duplicates — e.g. a Sport field separating England (Football) from England (Cricket).', category: 'tidytags'));
+            $nodes[] = Field::make(t('Display fields', category: 'tidytags'), Choice::make(['sourceFieldConfig', $source->uid, 'display'])
+                ->options(array_slice($fields, 1))->multiple()->presentation(ChoicePresentation::Checkboxes))
+                ->instructions(t('Shown beside each item in duplicate clusters and the “did you mean?” warning.', category: 'tidytags'));
+        }
+
+        return $nodes;
     }
 }

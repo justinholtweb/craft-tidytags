@@ -1,0 +1,115 @@
+{% import "tidytags/_macros" as tt %}
+{% set canAct = source.isWritable and (canManage or canDelete) %}
+
+<div class="tidytags-group">
+    <div class="tidytags-source-meta">
+        {{ tt.badge() }}
+        {% if not source.isWritable %}
+            <span class="tidytags-note">
+                {{ 'Read-only — rename, merge and delete are off for this section. Allow them in the Tidy Tags settings, or manage these entries in their section.'|t('tidytags') }}
+            </span>
+        {% else %}
+            <span class="tidytags-note">{{ 'Merged and deleted entries go to the trash and can be restored.'|t('tidytags') }}</span>
+        {% endif %}
+    </div>
+
+    {{ tt.urlReportNotice(urlReport) }}
+
+    <form method="get" action="{{ baseUrl }}" class="tidytags-toolbar">
+        <input type="search" name="search" value="{{ search }}" class="tidytags-search"
+               placeholder="{{ 'Search entries…'|t('tidytags') }}" aria-label="{{ 'Search entries'|t('tidytags') }}">
+        {{ tt.siteSelect(sites, selectedSiteId, 'All sites'|t('tidytags')) }}
+        <button type="submit" class="btn">{{ 'Filter'|t('tidytags') }}</button>
+    </form>
+
+    <form method="post" action="" class="tidytags-bulk"
+          data-tidytags-bulk
+          data-rename-url="{{ actions.rename }}"
+          data-merge-url="{{ actions.merge }}"
+          data-delete-url="{{ actions.delete }}"
+          data-site-id="{{ selectedSiteId }}"
+          data-confirm-delete="{{ 'Move {n} entry(s) to the trash?'|t('tidytags') }}"
+          data-confirm-merge="{{ 'Merge {n} entry(s) into “{title}”? They will be moved to the trash, and you can download a list of the URLs they had.'|t('tidytags') }}"
+          data-prompt-keep="{{ 'Which one should be kept? Enter a number 1–{n}:'|t('tidytags') }}"
+          data-prompt-rename="{{ 'New title for “{title}”:'|t('tidytags') }}">
+        {{ csrfInput() }}
+        {{ redirectInput(returnUrl) }}
+
+        {% if canAct %}
+            <div class="tidytags-actions">
+                {% if canManage %}
+                    <button type="button" class="btn" data-action="rename" disabled>{{ 'Rename…'|t('tidytags') }}</button>
+                    {% if canDelete %}
+                        <button type="button" class="btn" data-action="merge" disabled>{{ 'Merge…'|t('tidytags') }}</button>
+                    {% endif %}
+                {% endif %}
+                {% if canDelete %}
+                    <button type="button" class="btn delete" data-action="delete" disabled>{{ 'Delete'|t('tidytags') }}</button>
+                {% endif %}
+                <span class="tidytags-selected-count tidytags-note" aria-live="polite">{{ '0 selected'|t('tidytags') }}</span>
+            </div>
+        {% endif %}
+
+        {% if rows|length == 0 %}
+            <p>{{ 'Nothing found.'|t('tidytags') }}</p>
+        {% else %}
+            <p class="tidytags-page-summary">
+                {{ 'Showing {first}–{last} of {total}'|t('tidytags', {
+                    first: pagination.first|number,
+                    last: pagination.last|number,
+                    total: pagination.total|number,
+                }) }}
+            </p>
+            <table class="tidytags-table">
+                <thead>
+                    <tr>
+                        {% if canAct %}
+                            <th scope="col" class="tidytags-checkbox">
+                                <input type="checkbox" data-tidytags-select-all aria-label="{{ 'Select all on this page'|t('tidytags') }}">
+                            </th>
+                        {% endif %}
+                        <th scope="col">{{ 'Title'|t('tidytags') }}</th>
+                        {% if selectedSiteId is null %}
+                            {% for site in sites %}
+                                <th scope="col">{{ site.handle }}</th>
+                            {% endfor %}
+                        {% endif %}
+                        <th scope="col"><span class="visually-hidden">{{ 'Actions'|t('tidytags') }}</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                        {% set element = row.element %}
+                        <tr data-element-id="{{ element.id }}">
+                            {% if canAct %}
+                                <td class="tidytags-checkbox">
+                                    <input type="checkbox" class="tidytags-row-check" value="{{ element.id }}" aria-label="{{ element.title }}">
+                                </td>
+                            {% endif %}
+                            <td><span class="tidytags-title">{{ element.title }}</span></td>
+                            {% if selectedSiteId is null %}
+                                {% for site in sites %}
+                                    <td>
+                                        {% set t = row.titles[site.id] ?? null %}
+                                        {% if t %}
+                                            <span class="smalltext">{{ t }}</span>
+                                        {% else %}
+                                            <span class="tidytags-missing" title="{{ 'Not in this site'|t('tidytags') }}">—</span>
+                                        {% endif %}
+                                    </td>
+                                {% endfor %}
+                            {% endif %}
+                            <td>
+                                {% set editUrl = element.getCpEditUrl() %}
+                                {% if editUrl %}
+                                    <a class="btn small" href="{{ editUrl }}" target="_blank" rel="noopener">{{ 'Edit'|t('tidytags') }}</a>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {{ tt.pager(pagination, baseUrl, filterParams) }}
+        {% endif %}
+    </form>
+</div>
