@@ -4,6 +4,7 @@ namespace justinholtweb\tidytags\console;
 
 use craft\helpers\Console;
 use craft\helpers\Json;
+use justinholtweb\tidytags\helpers\Csv;
 use yii\console\ExitCode;
 
 /**
@@ -69,32 +70,14 @@ trait ReportOutput
      */
     protected function outputCsv(array $headers, array $rows): void
     {
-        $handle = fopen('php://temp', 'r+');
-        fputcsv($handle, $headers, ',', '"', '');
-        foreach ($rows as $row) {
-            fputcsv($handle, array_map([$this, 'csvCell'], $row), ',', '"', '');
-        }
-        rewind($handle);
-        $this->stdout((string)stream_get_contents($handle));
-        fclose($handle);
+        $this->stdout(Csv::build($headers, $rows));
     }
 
     /**
-     * Neutralises spreadsheet formulas: titles are typed by editors, and a
-     * cell starting with `=`, `+`, `-`, `@`, tab or CR runs as a formula when
-     * the CSV is opened in Excel or Sheets. Such cells get a leading `'`.
+     * @see Csv::cell()
      */
     protected function csvCell(mixed $value): string
     {
-        if ($value === null) {
-            return '';
-        }
-        if (is_int($value) || is_float($value)) {
-            return (string)$value;
-        }
-        $value = (string)$value;
-        return $value !== '' && in_array($value[0], ['=', '+', '-', '@', "\t", "\r"], true)
-            ? "'" . $value
-            : $value;
+        return Csv::cell($value);
     }
 }

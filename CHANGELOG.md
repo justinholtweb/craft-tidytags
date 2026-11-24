@@ -1,5 +1,27 @@
 # Changelog
 
+## 5.5.0 - Unreleased
+
+### Added
+
+- **Rename, merge and delete for entry sections.** Tag-like sections can now allow rename, merge and delete, in **Settings → Tidy Tags** or with the new `writableSectionUids` setting. Only channel sections qualify. Once a section is allowed, its entries get the same actions as tags on the Manage and Duplicates screens and in the console. Sections are read-only until you allow them, so nothing changes on upgrade.
+- Deleted and merged entries go to the trash and can be restored. Tags are still deleted outright.
+- **URL report for merges.** Merging entries with URLs lists each URL it retires alongside the kept entry's URL in the same site. After a merge in the control panel, a notice offers the list as a CSV download. `tidytags/merge --format=csv` prints it from the console, and the merge dry run and its JSON include it.
+- **`tidytags/entrify-check`.** A read-only checklist for converting tag groups to entry sections before Craft 6. For each group it shows the tag count, unused tags, duplicate clusters and the Tags fields that use it, then prints the commands to run. Pass `--fail-on-issues` to exit 1 while any group still needs cleaning. The dashboard reminds you while tag groups remain.
+- **"Did you mean?" on entry titles.** The duplicate warning now also runs on the title field of entries in tag-like sections, on the edit page and in the slideout an Entries field opens for **New entry**. It leaves out the entry being edited, and switches itself off after one request on entries in other sections. `tidytags/tags/check-duplicate` accepts `elementId` and returns `applies`.
+- `Tags::getWritableItem()`, `rename()`, `delete()`, `deleteMany()`, `merge()`, `deleteUnused()`, `urlReport()`, `canMergeItems()` and `canDeleteItems()`; `Sources::getSourceForElement()` and `Sources::isSectionWritable()`; `Source::$writable` and `Source::softDeletes()`; the `tidytags/tags/url-report` action.
+
+### Changed
+
+- Merge refuses to run, and says why, when an item isn't writable, the items are in different tag groups or sections, or the kept entry is missing from a site the others (or their relations) are in. Previously the control panel merge didn't re-check these rules.
+- Renaming an entry needs the right to save it. Deleting or merging entries needs the right to delete each one removed.
+- The merge action's JSON now includes `message`, `urls` and `urlReport` as well as `success`.
+- Console messages say "item(s)" instead of "tag(s)" where entries can be involved. `tidytags/merge` now accepts `--format=csv`.
+
+### Deprecated
+
+- `Tags::renameTag()`, `deleteTag()`, `deleteTags()`, `mergeTags()` and `deleteUnusedTags()`. Use the element-agnostic methods above. The old names will be removed in 6.0.
+
 ## 5.4.0 - 2026-10-09
 ### Added
 

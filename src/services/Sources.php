@@ -41,7 +41,7 @@ class Sources extends Component
         }
 
         foreach ($this->getConfiguredEntrySections() as $section) {
-            $sources[] = Source::fromSection($section);
+            $sources[] = Source::fromSection($section, $this->isSectionWritable($section));
         }
 
         return $sources;
@@ -63,7 +63,30 @@ class Sources extends Component
         if ($section === null || !$this->isSectionConfigured($section)) {
             return null;
         }
-        return Source::fromSection($section);
+        return Source::fromSection($section, $this->isSectionWritable($section));
+    }
+
+    /**
+     * The source an element belongs to: its tag group, or its section when that
+     * section is configured as tag-like. Null for anything else, including
+     * entry drafts and revisions, which Tidy Tags never acts on.
+     */
+    public function getSourceForElement(ElementInterface $element): ?Source
+    {
+        if ($element instanceof Tag) {
+            return $this->getTagSource((int)$element->groupId);
+        }
+
+        if (
+            $element instanceof Entry &&
+            $element->sectionId !== null &&
+            !$element->getIsDraft() &&
+            !$element->getIsRevision()
+        ) {
+            return $this->getEntrySource((int)$element->sectionId);
+        }
+
+        return null;
     }
 
     /**
@@ -93,6 +116,17 @@ class Sources extends Component
             Plugin::$plugin->getSettings()->tagLikeSectionUids,
             true,
         );
+    }
+
+    /**
+     * Whether rename, merge and delete are allowed in a tag-like section. Only
+     * channels qualify: structure entries have parents and children that a
+     * merge would have to rearrange, which is a decision for a person.
+     */
+    public function isSectionWritable(Section $section): bool
+    {
+        return $section->type === Section::TYPE_CHANNEL
+            && Plugin::$plugin->getSettings()->isSectionWritable((string)$section->uid);
     }
 
     /**

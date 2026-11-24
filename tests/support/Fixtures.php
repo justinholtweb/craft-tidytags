@@ -4,6 +4,7 @@ namespace justinholtweb\tidytagstests\support;
 
 use Craft;
 use craft\elements\Entry;
+use craft\enums\PropagationMethod;
 use craft\elements\Tag;
 use craft\elements\User;
 use craft\fieldlayoutelements\CustomField;
@@ -140,15 +141,30 @@ final class Fixtures
     /**
      * Creates a channel section — the shape `php craft entrify/tags` produces.
      *
+     * Pass $uriFormat to give entries URLs, and $siteIds to enable the section
+     * in only some sites (every site by default). With several sites the
+     * section propagates entries to none of the others, so a test can build
+     * entries that exist in different sets of sites.
+     *
      * @param \craft\base\FieldInterface[] $fields
+     * @param int[]|null $siteIds
      */
-    public static function createChannelSection(string $handle, array $fields = []): Section
-    {
+    public static function createChannelSection(
+        string $handle,
+        array $fields = [],
+        ?string $uriFormat = null,
+        ?array $siteIds = null,
+        string $propagationMethod = 'all',
+    ): Section {
         $siteSettings = [];
         foreach (Craft::$app->getSites()->getAllSites() as $site) {
+            if ($siteIds !== null && !in_array($site->id, $siteIds, true)) {
+                continue;
+            }
             $siteSettings[] = new Section_SiteSettings([
                 'siteId' => $site->id,
-                'hasUrls' => false,
+                'hasUrls' => $uriFormat !== null,
+                'uriFormat' => $uriFormat,
                 'enabledByDefault' => true,
             ]);
         }
@@ -168,6 +184,7 @@ final class Fixtures
             'handle' => $handle,
             'type' => Section::TYPE_CHANNEL,
             'siteSettings' => $siteSettings,
+            'propagationMethod' => PropagationMethod::from($propagationMethod),
         ]);
         $section->setEntryTypes([$entryType]);
 

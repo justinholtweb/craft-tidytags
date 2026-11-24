@@ -9,15 +9,21 @@ use justinholtweb\tidytags\Plugin;
 use yii\console\ExitCode;
 
 /**
- * Merges tags into one, the console twin of the Merge button.
+ * Merges items into one, the console twin of the Merge button.
  *
- *     php craft tidytags/merge --into=12 34 56          # dry run: shows what would move
- *     php craft tidytags/merge --into=12 34,56 --apply  # merges
+ *     php craft tidytags/merge --into=12 34 56                     # dry run: shows what would move
+ *     php craft tidytags/merge --into=12 34,56 --apply             # merges
+ *     php craft tidytags/merge --into=12 34 --apply --format=csv   # merges; prints the retired URLs as CSV
  *
- * A dry run unless `--apply` is passed (and `--dry-run` always wins). Tag-only,
- * and every tag must be in the target's tag group. Exits 0 on success or a
- * clean dry run, 64 on bad arguments, 65 when the tags can't be merged and 1
- * when the merge itself fails (it runs in a transaction, so nothing changes).
+ * Works on tags and on entries in writable tag-like sections. Every item must
+ * be in the target's tag group or section, and for entries the target must
+ * exist in every site the others do. Merged entries go to the trash.
+ *
+ * A dry run unless `--apply` is passed (and `--dry-run` always wins). With
+ * `--format=csv` the output is the URL map (site, sourceId, sourceTitle,
+ * oldUrl, newUrl), ready for a redirect tool. Exits 0 on success or a clean
+ * dry run, 64 on bad arguments, 65 when the items can't be merged and 1 when
+ * the merge itself fails (it runs in a transaction, so nothing changes).
  *
  * The console is trusted: unlike the control panel action, this doesn't check
  * that a user can save every entry whose relations move.
@@ -27,7 +33,7 @@ class MergeController extends Controller
     use ReportOutput;
 
     /**
-     * @var int|null The tag to keep. Every other tag's relations move onto it.
+     * @var int|null The item to keep. Every other item's relations move onto it.
      */
     public ?int $into = null;
 
@@ -52,22 +58,17 @@ class MergeController extends Controller
     }
 
     /**
-     * Merges the given tag IDs into the --into tag, deleting them.
+     * Merges the given item IDs into the --into item, deleting them.
      *
-     * @param string ...$ids Tag IDs to merge, space- or comma-separated.
+     * @param string ...$ids IDs to merge, space- or comma-separated.
      */
     public function actionIndex(string ...$ids): int
     {
         if (($code = $this->checkFormat()) !== null) {
             return $code;
         }
-        if ($this->format === 'csv') {
-            $this->fail('--format must be table or json for merge.');
-            return ExitCode::USAGE;
-        }
-
         if ($this->into === null || $this->into <= 0) {
-            $this->fail('--into=<tag ID> is required.');
+            $this->fail('--into=<ID> is required.');
             return ExitCode::USAGE;
         }
 
@@ -79,14 +80,14 @@ class MergeController extends Controller
                     continue;
                 }
                 if (!ctype_digit($part) || (int)$part === 0) {
-                    $this->fail("“{$part}” is not a tag ID.");
+                    $this->fail("“{$part}” is not an ID.");
                     return ExitCode::USAGE;
                 }
                 $sourceIds[] = (int)$part;
             }
         }
         if ($sourceIds === []) {
-            $this->fail('Pass the IDs of the tags to merge into #' . $this->into . '.');
+            $this->fail('Pass the IDs of the items to merge into #' . $this->into . '.');
             return ExitCode::USAGE;
         }
 
@@ -105,16 +106,28 @@ class MergeController extends Controller
 
         if ($this->format === 'json') {
             $this->outputJson($plan + ['dryRun' => !$write]);
+        } elseif ($this->format === 'csv') {
+            $this->outputCsv(['site', 'sourceId', 'sourceTitle', 'oldUrl', 'newUrl'], array_map(
+                fn(array $u) => [$u['siteHandle'], $u['sourceId'], $u['sourceTitle'], $u['oldUrl'], $u['newUrl']],
+                $plan['urls'],
+            ));
         } else {
             $this->say(sprintf('Merge into #%d “%s”:', $plan['target']['id'], $plan['target']['title']));
             $this->table(['ID', 'Title', 'Relations', 'Move', 'Drop (target has it)'], array_map(
                 fn(array $s) => [(string)$s['id'], $s['title'], (string)$s['relations'], (string)$s['moved'], (string)$s['deduped']],
                 $plan['sources'],
             ));
+            if ($plan['urls'] !== []) {
+                $this->say(sprintf('URLs %s retired:', $write ? 'being' : 'that would be'));
+                $this->table(['Site', 'ID', 'Old URL', 'New URL'], array_map(
+                    fn(array $u) => [$u['siteHandle'], (string)$u['sourceId'], $u['oldUrl'], $u['newUrl'] ?? '(none)'],
+                    $plan['urls'],
+                ));
+            }
         }
 
         $summary = sprintf(
-            '%d tag(s) %s deleted; %d relation(s) %s moved and %d duplicate relation(s) dropped.',
+            '%d item(s) %s deleted; %d relation(s) %s moved and %d duplicate relation(s) dropped.',
             count($plan['sources']),
             $write ? 'will be' : 'would be',
             $plan['moved'],
@@ -128,13 +141,13 @@ class MergeController extends Controller
             return ExitCode::OK;
         }
 
-        if (!$tags->mergeTags($sourceIds, $this->into)) {
+        if (!$tags->merge($sourceIds, $this->into)['success']) {
             $this->fail('The merge failed and was rolled back; nothing changed. See the Craft log for the error.');
             return ExitCode::UNSPECIFIED_ERROR;
         }
 
         $this->say(sprintf(
-            'Merged %d tag(s) into #%d: %d relation(s) moved, %d duplicate relation(s) dropped.',
+            'Merged %d item(s) into #%d: %d relation(s) moved, %d duplicate relation(s) dropped.',
             count($plan['sources']),
             $this->into,
             $plan['moved'],

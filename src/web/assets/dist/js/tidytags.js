@@ -115,7 +115,10 @@
     return li;
   }
 
-  function renderWarning($warning, matches) {
+  var TAG_HEADING = 'Already exists — consider reusing one of these instead of creating a new tag:';
+  var ENTRY_HEADING = 'Similar entries already exist — consider using one of these instead of creating a duplicate:';
+
+  function renderWarning($warning, matches, headingText) {
     var node = $warning.get(0);
     if (!node) return;
 
@@ -130,9 +133,7 @@
     var heading = document.createElement('div');
     heading.className = 'tidytags-warning-heading';
     heading.appendChild(
-      document.createTextNode(
-        'Already exists — consider reusing one of these instead of creating a new tag:'
-      )
+      document.createTextNode(headingText || TAG_HEADING)
     );
     node.appendChild(heading);
 
@@ -146,7 +147,13 @@
     node.hidden = false;
   }
 
-  var checkTitle = debounce(function ($input, groupId, siteId) {
+  /**
+   * Looks up titles similar to the input's value. `params` carries groupId
+   * (Tags fields) or elementId (entry title fields), plus siteId. When the
+   * server says the check doesn't apply here, or refuses it, `onDisable` stops
+   * further lookups for this input.
+   */
+  function lookup($input, params, heading, onDisable) {
     var value = ($input.val() || '').toString().trim();
     var $warning = ensureWarningElement($input);
     if (value.length < 2) {
@@ -155,20 +162,71 @@
     }
 
     var data = { title: value };
-    if (groupId) data.groupId = groupId;
-    if (siteId) data.siteId = siteId;
+    Object.keys(params).forEach(function (k) {
+      if (params[k]) data[k] = params[k];
+    });
 
     Craft.sendActionRequest('GET', ENDPOINT, { params: data })
       .then(function (response) {
         var body = response && response.data ? response.data : response;
+        if (body && body.applies === false) {
+          renderWarning($warning, []);
+          if (onDisable) onDisable();
+          return;
+        }
         if (body && body.matches) {
-          renderWarning($warning, body.matches);
+          renderWarning($warning, body.matches, heading);
         }
       })
       .catch(function () {
         renderWarning($warning, []);
+        if (onDisable) onDisable();
       });
+  }
+
+  var checkTitle = debounce(function ($input, groupId, siteId) {
+    lookup($input, { groupId: groupId, siteId: siteId }, TAG_HEADING, null);
   }, DEBOUNCE_MS);
+
+  /**
+   * Hooks the title field of an entry editor — the full edit page or the
+   * slideout an Entries field opens for "New entry". The server decides
+   * whether the entry is in a tag-like section; if not, the first lookup
+   * switches the hook off, so ordinary content entries cost one request.
+   */
+  function attachEntryTitle($field) {
+    if ($field.data('tidytagsAttached')) {
+      return;
+    }
+    $field.data('tidytagsAttached', true);
+
+    var $input = $field.find('input.text, textarea').first();
+    var $form = $field.closest('form');
+    if (!$input.length || !$form.length) {
+      return;
+    }
+
+    var elementId = $form.find('input[name="elementId"], input[name$="[elementId]"]').first().val();
+    if (!elementId) {
+      return;
+    }
+    var siteId = $form.find('input[name="siteId"], input[name$="[siteId]"]').first().val() || null;
+
+    var disable = function () {
+      $input.off('.tidytags');
+    };
+    var check = debounce(function () {
+      lookup($input, { elementId: elementId, siteId: siteId }, ENTRY_HEADING, disable);
+    }, DEBOUNCE_MS);
+
+    $input.on('input.tidytags', check);
+    $input.on('blur.tidytags', function () {
+      setTimeout(function () {
+        var $warning = $input.data('tidytagsWarning');
+        if ($warning && $warning.length) $warning.get(0).hidden = true;
+      }, 200);
+    });
+  }
 
   function attach($container) {
     if ($container.data('tidytagsAttached')) {
@@ -203,6 +261,9 @@
     });
     $root.find('[data-type="craft\\\\fields\\\\Tags"], .field[data-type*="Tags"]').each(function () {
       attach($(this));
+    });
+    $root.find('.field[data-attribute="title"]').addBack('.field[data-attribute="title"]').each(function () {
+      attachEntryTitle($(this));
     });
   }
 

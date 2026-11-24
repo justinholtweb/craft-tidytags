@@ -10,9 +10,11 @@ use craft\models\TagGroup;
  * entry section that an admin has designated as tag-like (typically because
  * their tags were converted with `php craft entrify/tags`).
  *
- * Entry sources are read-only within Tidy Tags: rename, merge, and delete
- * operate on Tag elements only, because entries carry URLs, bodies, drafts,
- * and authorship that this plugin cannot safely reason about.
+ * Tag groups are always writable. Entry sections are read-only unless an admin
+ * also opts them into `writableSectionUids`: entries carry URLs, content and
+ * authorship, so rename, merge and delete stay off until someone says the
+ * section is a vocabulary rather than content. Merging entries soft-deletes
+ * the losing ones, so they can be restored from the trash.
  */
 final class Source
 {
@@ -25,6 +27,7 @@ final class Source
         public readonly string $uid,
         public readonly string $name,
         public readonly string $handle,
+        public readonly bool $writable = true,
     ) {}
 
     public static function fromTagGroup(TagGroup $group): self
@@ -38,7 +41,7 @@ final class Source
         );
     }
 
-    public static function fromSection(Section $section): self
+    public static function fromSection(Section $section, bool $writable = false): self
     {
         return new self(
             type: self::TYPE_ENTRY,
@@ -46,12 +49,26 @@ final class Source
             uid: (string)$section->uid,
             name: (string)$section->name,
             handle: (string)$section->handle,
+            writable: $writable,
         );
     }
 
+    /**
+     * Whether rename, merge and delete are allowed on this source's items.
+     */
     public function isWritable(): bool
     {
-        return $this->type === self::TYPE_TAG;
+        return $this->type === self::TYPE_TAG || $this->writable;
+    }
+
+    /**
+     * Whether deleting an item sends it to the trash rather than removing it
+     * for good. Entries are soft-deleted so a merge can be undone; tags have
+     * no URLs or content worth restoring and are deleted outright, as before.
+     */
+    public function softDeletes(): bool
+    {
+        return $this->type === self::TYPE_ENTRY;
     }
 
     public function typeLabel(): string

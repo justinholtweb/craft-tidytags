@@ -98,6 +98,7 @@
 {% set redirect = 'tidytags/duplicates?' ~ filterParams|merge(pagination.page > 1 ? { page: pagination.page } : {})|url_encode %}
 
 <div class="tidytags-duplicates">
+    {{ tt.urlReportNotice() }}
     <form method="get" action="{{ cpUrl('tidytags/duplicates') }}" class="tidytags-toolbar">
         {{ hiddenInput('scope', scope) }}
         <div class="flex">
@@ -186,7 +187,9 @@
                     'Swap relations') }}
             {% elseif source.isWritable %}
                 {{ _self.clusterForm(entry.items, 'merge', redirect, canManage and canDelete,
-                    'Merge selected tags into the target? This cannot be undone.',
+                    source.softDeletes
+                        ? 'Merge selected entries into the target? They will be moved to the trash, and you can download a list of the URLs they had.'
+                        : 'Merge selected tags into the target? This cannot be undone.',
                     'Merge cluster') }}
             {% else %}
                 {{ _self.clusterForm(entry.items, 'swap', redirect, canManage,

@@ -105,4 +105,45 @@ class GroupScreenTest extends PluginTestCase
         }
         self::assertSame($shown !== [], str_contains($html, 'tidytags-row-check'));
     }
+
+    private function entrySource(bool $writable): Source
+    {
+        $section = Fixtures::createChannelSection('teams');
+        Fixtures::createEntry($section, 'Arsenal');
+        Fixtures::createEntry($section, 'Arsenal FC');
+        $this->setPluginSettings([
+            'tagLikeSectionUids' => [$section->uid],
+            'writableSectionUids' => $writable ? [$section->uid] : [],
+        ]);
+        return $this->sources()->getEntrySource($section->id);
+    }
+
+    public function testReadOnlyEntrySectionHidesActions(): void
+    {
+        $html = $this->render($this->entrySource(false));
+
+        self::assertStringContainsString('Read-only', $html);
+        self::assertStringNotContainsString('data-action="merge"', $html);
+    }
+
+    public function testWritableEntrySectionOffersActionsAndTrashCopy(): void
+    {
+        $html = $this->render($this->entrySource(true));
+
+        foreach (['rename', 'merge', 'delete'] as $action) {
+            self::assertStringContainsString("data-action=\"$action\"", $html);
+        }
+        self::assertStringContainsString('go to the trash', $html);
+    }
+
+    public function testUrlReportNoticeAppearsAfterAMerge(): void
+    {
+        Craft::$app->getSession()->setFlash('tidytagsUrlReport', ['token' => 'abc123', 'count' => 2]);
+
+        $html = $this->render($this->entrySource(true));
+
+        self::assertStringContainsString('The merge retired 2 URLs', $html);
+        self::assertStringContainsString('report=abc123', $html);
+        self::assertStringNotContainsString('token=', $html, 'Craft reserves the token query param.');
+    }
 }

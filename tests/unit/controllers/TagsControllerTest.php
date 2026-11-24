@@ -201,7 +201,10 @@ class TagsControllerTest extends PluginTestCase
 
         $this->preparePostRequest(['sourceIds' => [$source->id], 'targetId' => $target->id]);
 
-        self::assertSame(['success' => true], $this->controller()->actionMerge()->data);
+        $data = $this->controller()->actionMerge()->data;
+        self::assertTrue($data['success']);
+        self::assertSame([], $data['urls'], 'Tags have no URLs to report.');
+        self::assertNull($data['urlReport']);
         self::assertNull(Tag::find()->id($source->id)->status(null)->one());
     }
 
@@ -461,7 +464,7 @@ class TagsControllerTest extends PluginTestCase
 
         $this->preparePostRequest(['sourceIds' => [$source->id], 'targetId' => $target->id]);
 
-        self::assertSame(['success' => true], $this->controller()->actionMerge()->data);
+        self::assertTrue($this->controller()->actionMerge()->data['success']);
     }
 
     /**
@@ -516,5 +519,117 @@ class TagsControllerTest extends PluginTestCase
             ['success' => false, 'usages' => []],
             $this->controller()->actionUsages()->data,
         );
+    }
+
+    public function testEntryMergeReturnsDownloadableUrlReport(): void
+    {
+        $teams = Fixtures::createChannelSection('teams', [], 'teams/{slug}');
+        $target = Fixtures::createEntry($teams, 'Arsenal');
+        $source = Fixtures::createEntry($teams, 'Arsenal FC');
+        $this->setPluginSettings([
+            'tagLikeSectionUids' => [$teams->uid],
+            'writableSectionUids' => [$teams->uid],
+        ]);
+
+        $this->preparePostRequest(['sourceIds' => [$source->id], 'targetId' => $target->id]);
+        $data = $this->controller()->actionMerge()->data;
+
+        self::assertTrue($data['success']);
+        self::assertCount(1, $data['urls']);
+        self::assertNotNull($data['urlReport']);
+        self::assertStringContainsString('report=', $data['urlReport']);
+        self::assertStringNotContainsString('token=', $data['urlReport'], 'Craft reserves the token query param.');
+
+        $flash = Craft::$app->getSession()->getFlash(TagsController::URL_REPORT_FLASH);
+        $csv = $this->controller()->actionUrlReport($flash['token'])->content;
+        self::assertStringContainsString('oldUrl,newUrl', $csv);
+        self::assertStringContainsString('teams/arsenal-fc', $csv);
+    }
+
+    public function testEntryMergeProblemsAreReported(): void
+    {
+        $teams = Fixtures::createChannelSection('teams');
+        $clubs = Fixtures::createChannelSection('clubs');
+        $target = Fixtures::createEntry($teams, 'Arsenal');
+        $source = Fixtures::createEntry($clubs, 'Arsenal');
+        $this->setPluginSettings([
+            'tagLikeSectionUids' => [$teams->uid, $clubs->uid],
+            'writableSectionUids' => [$teams->uid, $clubs->uid],
+        ]);
+
+        $this->preparePostRequest(['sourceIds' => [$source->id], 'targetId' => $target->id]);
+        $data = $this->controller()->actionMerge()->data;
+
+        self::assertFalse($data['success']);
+        self::assertStringContainsString('different section', $data['message']);
+    }
+
+    public function testEntryDeleteNeedsEntryDeleteRights(): void
+    {
+        $teams = Fixtures::createChannelSection('teams');
+        $entry = Fixtures::createEntry($teams, 'Arsenal');
+        $this->setPluginSettings([
+            'tagLikeSectionUids' => [$teams->uid],
+            'writableSectionUids' => [$teams->uid],
+        ]);
+
+        Fixtures::login(Fixtures::createUser('tagger', false, [
+            'accessPlugin-tidytags',
+            Plugin::PERMISSION_MANAGE_TAGS,
+            Plugin::PERMISSION_DELETE_TAGS,
+        ]));
+
+        $this->preparePostRequest(['tagIds' => [$entry->id]]);
+
+        $this->expectException(ForbiddenHttpException::class);
+        $this->controller()->actionDelete();
+    }
+
+    public function testCheckDuplicateFromATagLikeEntryTitleLeavesTheEntryOut(): void
+    {
+        $teams = Fixtures::createChannelSection('teams');
+        $arsenal = Fixtures::createEntry($teams, 'Arsenal');
+        $editing = Fixtures::createEntry($teams, 'Arsenl');
+        $this->setPluginSettings(['tagLikeSectionUids' => [$teams->uid]]);
+
+        $this->prepareGetRequest(['title' => 'Arsenl', 'elementId' => $editing->id]);
+        $data = $this->controller()->actionCheckDuplicate()->data;
+
+        self::assertTrue($data['applies']);
+        $ids = array_map(fn(array $m) => (int)$m['id'], $data['matches']);
+        self::assertContains($arsenal->id, $ids);
+        self::assertNotContains($editing->id, $ids, 'An entry is never its own duplicate.');
+    }
+
+    public function testCheckDuplicateFromAnUnpublishedDraftInATagLikeSection(): void
+    {
+        $teams = Fixtures::createChannelSection('teams');
+        $arsenal = Fixtures::createEntry($teams, 'Arsenal');
+        $this->setPluginSettings(['tagLikeSectionUids' => [$teams->uid]]);
+
+        // What "New entry" creates before the editor has typed a title.
+        $draft = new \craft\elements\Entry([
+            'sectionId' => $teams->id,
+            'typeId' => $teams->getEntryTypes()[0]->id,
+        ]);
+        Craft::$app->getDrafts()->saveElementAsDraft($draft, null, null, null, false);
+
+        $this->prepareGetRequest(['title' => 'Arsenl', 'elementId' => $draft->id]);
+        $data = $this->controller()->actionCheckDuplicate()->data;
+
+        self::assertTrue($data['applies']);
+        self::assertContains($arsenal->id, array_map(fn(array $m) => (int)$m['id'], $data['matches']));
+    }
+
+    public function testCheckDuplicateDoesNotApplyToOrdinaryEntries(): void
+    {
+        $news = Fixtures::createChannelSection('news');
+        $article = Fixtures::createEntry($news, 'Match report');
+
+        $this->prepareGetRequest(['title' => 'Match reprot', 'elementId' => $article->id]);
+        $data = $this->controller()->actionCheckDuplicate()->data;
+
+        self::assertFalse($data['applies']);
+        self::assertSame([], $data['matches']);
     }
 }

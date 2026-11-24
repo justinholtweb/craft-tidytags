@@ -6,17 +6,23 @@ use Craft;
 use craft\base\Component;
 use craft\base\ElementInterface;
 use craft\db\Query;
+use craft\elements\Entry;
 use craft\elements\Tag;
 use craft\elements\User;
+use justinholtweb\tidytags\models\Source;
+use justinholtweb\tidytags\Plugin;
 use Throwable;
 
 /**
- * Tag mutations (rename, delete, merge) and the element-type-agnostic
+ * Item mutations (rename, delete, merge) and the element-type-agnostic
  * relation-swap primitive shared by merge and the cross-source swap action.
  *
- * - Rename, delete, merge are intentionally tag-only: the `Tag::find()->id()`
- *   scoping enforces that on the server side, so an entry ID posted to these
- *   actions simply won't resolve.
+ * - Rename, delete and merge act on "writable items": tags in any tag group,
+ *   and canonical entries in tag-like sections an admin has opted into
+ *   `writableSectionUids`. {@see getWritableItem()} enforces that on the server
+ *   side, so an ID from anywhere else simply won't resolve.
+ * - Entries are soft-deleted (they go to the trash and can be restored); tags
+ *   are deleted outright, as they always have been.
  * - {@see swapRelations()} works across any element types — it only touches
  *   the {{%relations}} table and never deletes anything, so it's safe to use
  *   for cross-source cleanups (e.g. re-pointing entries that mistakenly
@@ -25,68 +31,120 @@ use Throwable;
 class Tags extends Component
 {
     /**
-     * Renames a tag.
+     * Loads an item Tidy Tags may change: a tag, or a canonical entry in a
+     * writable tag-like section. Drafts, revisions, trashed elements and
+     * elements of any other type resolve to null.
+     *
+     * With no $siteId the item is loaded in the primary site if it exists
+     * there, otherwise in any site it does exist in.
+     */
+    public function getWritableItem(int $id, ?int $siteId = null): ?ElementInterface
+    {
+        if ($id <= 0) {
+            return null;
+        }
+
+        $type = (new Query())
+            ->select(['type'])
+            ->from(['{{%elements}}'])
+            ->where(['id' => $id])
+            ->scalar();
+
+        $query = match ($type) {
+            Tag::class => Tag::find(),
+            Entry::class => Entry::find(),
+            default => null,
+        };
+        if ($query === null) {
+            return null;
+        }
+
+        $query->id($id)->status(null);
+        if ($siteId !== null) {
+            $query->siteId($siteId);
+        } else {
+            $query->site('*')->unique()->preferSites([Craft::$app->getSites()->getPrimarySite()->id]);
+        }
+
+        $element = $query->one();
+        if ($element === null) {
+            return null;
+        }
+
+        $source = Plugin::$plugin->sources->getSourceForElement($element);
+        return $source !== null && $source->isWritable() ? $element : null;
+    }
+
+    /**
+     * Renames an item.
      *
      * If $siteId is null, renames across every site; otherwise renames only
-     * within the given site.
+     * within the given site. Entries whose type generates its titles (no title
+     * field) can't be renamed, since the next save would overwrite the title.
      */
-    public function renameTag(int $tagId, string $newTitle, ?int $siteId = null): bool
+    public function rename(int $id, string $newTitle, ?int $siteId = null): bool
     {
         $newTitle = trim($newTitle);
         if ($newTitle === '') {
             return false;
         }
 
+        $elementsService = Craft::$app->getElements();
+
         if ($siteId !== null) {
-            $tag = Tag::find()->id($tagId)->siteId($siteId)->status(null)->one();
-            if ($tag === null) {
+            $item = $this->getWritableItem($id, $siteId);
+            if ($item === null || !$this->_hasEditableTitle($item)) {
                 return false;
             }
-            $tag->title = $newTitle;
-            return Craft::$app->getElements()->saveElement($tag, true, false);
+            $item->title = $newTitle;
+            return $elementsService->saveElement($item, true, false);
         }
 
         $ok = true;
         $renamed = false;
         foreach (Craft::$app->getSites()->getAllSites() as $site) {
-            $tag = Tag::find()->id($tagId)->siteId($site->id)->status(null)->one();
-            if ($tag === null) {
+            $item = $this->getWritableItem($id, $site->id);
+            if ($item === null) {
                 continue;
             }
+            if (!$this->_hasEditableTitle($item)) {
+                return false;
+            }
             $renamed = true;
-            $tag->title = $newTitle;
-            if (!Craft::$app->getElements()->saveElement($tag, true, true)) {
+            $item->title = $newTitle;
+            if (!$elementsService->saveElement($item, true, true)) {
                 $ok = false;
             }
         }
 
         // Report failure when the ID resolved to nothing at all, rather than
-        // letting the CP announce "Tag renamed." after a no-op.
+        // letting the CP announce "Renamed." after a no-op.
         return $renamed && $ok;
     }
 
     /**
-     * Deletes a tag entirely (all sites).
+     * Deletes an item from every site. Entries go to the trash; tags are
+     * deleted outright.
      */
-    public function deleteTag(int $tagId): bool
+    public function delete(int $id): bool
     {
-        $tag = Tag::find()->id($tagId)->status(null)->one();
-        if ($tag === null) {
+        $item = $this->getWritableItem($id);
+        if ($item === null) {
             return false;
         }
-        return Craft::$app->getElements()->deleteElement($tag, true);
+        return $this->_deleteItem($item);
     }
 
     /**
-     * Deletes a batch of tags and returns how many were removed.
+     * Deletes a batch of items and returns how many were removed.
      *
-     * @param int[] $tagIds
+     * @param int[] $ids
      */
-    public function deleteTags(array $tagIds): int
+    public function deleteMany(array $ids): int
     {
         $count = 0;
-        foreach ($tagIds as $id) {
-            if ($this->deleteTag((int)$id)) {
+        foreach ($ids as $id) {
+            if ($this->delete((int)$id)) {
                 $count++;
             }
         }
@@ -94,26 +152,35 @@ class Tags extends Component
     }
 
     /**
-     * Merges source tags into a target tag.
+     * Merges source items into a target item in the same source.
      *
      * Re-points every relation from the sources to the target, then deletes
-     * the source tag elements. Tag-only — for cross-type or entry-involved
-     * cleanups, use {@see swapRelations()} which leaves the source elements
-     * in place.
+     * the sources: tags outright, entries to the trash. Refuses to run when
+     * {@see mergeProblems()} reports anything.
+     *
+     * The result lists every URL the merge retires — one row per source entry
+     * per site it has a URI in — with the target's URL in that site, so the
+     * site can set up redirects. Tags have no URLs, so a tag merge's list is
+     * empty.
      *
      * @param int[] $sourceIds
+     * @return array{success: bool, urls: array<int, array{siteId: int, siteHandle: string, sourceId: int, sourceTitle: string, oldUrl: string, newUrl: ?string}>}
      */
-    public function mergeTags(array $sourceIds, int $targetId): bool
+    public function merge(array $sourceIds, int $targetId): array
     {
+        $failed = ['success' => false, 'urls' => []];
+
         $sourceIds = $this->_normalizeSourceIds($sourceIds, $targetId);
-        if (empty($sourceIds)) {
-            return false;
+        if (empty($sourceIds) || $this->mergeProblems($sourceIds, $targetId) !== []) {
+            return $failed;
         }
 
-        $target = Tag::find()->id($targetId)->status(null)->one();
+        $target = $this->getWritableItem($targetId);
         if ($target === null) {
-            return false;
+            return $failed;
         }
+
+        $urls = $this->urlReport($sourceIds, $targetId);
 
         $db = Craft::$app->getDb();
         $transaction = $db->beginTransaction();
@@ -122,19 +189,19 @@ class Tags extends Component
             $affectedTypes = $this->_repointRelations($sourceIds, $targetId);
 
             foreach ($sourceIds as $id) {
-                $tag = Tag::find()->id($id)->status(null)->one();
-                if ($tag !== null) {
-                    Craft::$app->getElements()->deleteElement($tag, true);
+                $item = $this->getWritableItem($id);
+                if ($item !== null && !$this->_deleteItem($item)) {
+                    throw new \RuntimeException("Couldn't delete #{$id}.");
                 }
             }
 
             $transaction->commit();
             $this->_invalidateCaches($affectedTypes, $target);
-            return true;
+            return ['success' => true, 'urls' => $urls];
         } catch (Throwable $e) {
             $transaction->rollBack();
             Craft::error('Tidy Tags merge failed: ' . $e->getMessage(), __METHOD__);
-            return false;
+            return $failed;
         }
     }
 
@@ -144,8 +211,7 @@ class Tags extends Component
      * cross-type — because the relations table only stores element IDs.
      *
      * Source elements are NOT deleted; this is the safer primitive to expose
-     * across element types where automatic deletion (especially of entries
-     * with URLs, drafts, and revisions) would be inappropriate.
+     * across element types and for read-only sources.
      *
      * @param int[] $sourceIds
      */
@@ -178,47 +244,88 @@ class Tags extends Component
 
     /**
      * Reasons a merge of $sourceIds into $targetId can't run, or an empty array
-     * when it can. Merge is tag-only and stays inside one tag group: a tag
-     * field is limited to its group, so moving its relations onto a tag from
-     * another group would leave the field pointing outside its own source.
+     * when it can.
      *
-     * The control panel only offers merges that pass these checks; the
-     * console command calls this before doing anything.
+     * - Every item must be writable ({@see getWritableItem()}).
+     * - Merge stays inside one source: a relational field is limited to its
+     *   sources, so moving relations onto an item from another tag group or
+     *   section would leave the field pointing outside them.
+     * - The target must exist in every site the sources exist in, and in every
+     *   site a relation being moved belongs to. Otherwise those relations would
+     *   point at an item that isn't there. Tags exist in every site, so this
+     *   only ever stops entry merges.
+     *
+     * The control panel only offers merges that pass these checks, the merge
+     * itself re-checks them, and the console command reports them.
      *
      * @param int[] $sourceIds
      * @return string[]
      */
     public function mergeProblems(array $sourceIds, int $targetId): array
     {
-        $target = Tag::find()->id($targetId)->status(null)->one();
+        $target = $this->getWritableItem($targetId);
         if ($target === null) {
-            return ["#{$targetId} is not a tag."];
+            return ["#{$targetId} is not a tag or an entry in a writable section."];
         }
+        $targetSource = Plugin::$plugin->sources->getSourceForElement($target);
 
         $sourceIds = $this->_normalizeSourceIds($sourceIds, $targetId);
         if (empty($sourceIds)) {
-            return ['There are no tags to merge into #' . $targetId . '.'];
+            return ['There is nothing to merge into #' . $targetId . '.'];
         }
 
-        $tags = Tag::find()->id($sourceIds)->status(null)->indexBy('id')->all();
-
         $problems = [];
+        $items = [];
         foreach ($sourceIds as $id) {
-            $tag = $tags[$id] ?? null;
-            if ($tag === null) {
-                $problems[] = "#{$id} is not a tag.";
-            } elseif ($tag->groupId !== $target->groupId) {
-                $problems[] = "#{$id} “{$tag->title}” is in a different tag group from #{$targetId} “{$target->title}”.";
+            $item = $this->getWritableItem($id);
+            if ($item === null) {
+                $problems[] = "#{$id} is not a tag or an entry in a writable section.";
+                continue;
             }
+            $source = Plugin::$plugin->sources->getSourceForElement($item);
+            if ($source === null || $source->type !== $targetSource->type || $source->id !== $targetSource->id) {
+                $container = $targetSource->type === Source::TYPE_TAG ? 'tag group' : 'section';
+                $problems[] = "#{$id} “{$item->title}” is in a different {$container} from #{$targetId} “{$target->title}”.";
+                continue;
+            }
+            $items[$id] = $item;
+        }
+
+        if ($problems !== []) {
+            return $problems;
+        }
+
+        $sitesService = Craft::$app->getSites();
+        $siteName = fn(int $siteId) => $sitesService->getSiteById($siteId, true)?->name ?? "site {$siteId}";
+        $targetSites = $this->_siteIds($targetId);
+
+        foreach ($items as $id => $item) {
+            $missing = array_diff($this->_siteIds($id), $targetSites);
+            if ($missing !== []) {
+                $names = implode(', ', array_map($siteName, $missing));
+                $problems[] = "#{$id} “{$item->title}” exists in {$names}, where #{$targetId} “{$target->title}” does not.";
+            }
+        }
+
+        [, $toUpdate] = $this->_classifyRelations($sourceIds, $targetId);
+        $orphaned = [];
+        foreach ($toUpdate as $r) {
+            if ($r['sourceSiteId'] !== null && !in_array((int)$r['sourceSiteId'], $targetSites, true)) {
+                $orphaned[(int)$r['sourceSiteId']] = ($orphaned[(int)$r['sourceSiteId']] ?? 0) + 1;
+            }
+        }
+        foreach ($orphaned as $siteId => $count) {
+            $problems[] = "{$count} relation(s) in {$siteName($siteId)} would point at #{$targetId} “{$target->title}”, which doesn't exist in that site.";
         }
 
         return $problems;
     }
 
     /**
-     * Describes what {@see mergeTags()} would do without doing it: per source
-     * tag, how many relations would move to the target and how many would be
-     * dropped as duplicates of a relation the target already has.
+     * Describes what {@see merge()} would do without doing it: per source
+     * item, how many relations would move to the target and how many would be
+     * dropped as duplicates of a relation the target already has, plus the
+     * URLs the merge would retire.
      *
      * @param int[] $sourceIds
      * @return array{
@@ -226,21 +333,19 @@ class Tags extends Component
      *     sources: array<int, array{id: int, title: string, relations: int, moved: int, deduped: int}>,
      *     moved: int,
      *     deduped: int,
+     *     urls: array<int, array{siteId: int, siteHandle: string, sourceId: int, sourceTitle: string, oldUrl: string, newUrl: ?string}>,
      * }
      */
     public function previewMerge(array $sourceIds, int $targetId): array
     {
         $sourceIds = $this->_normalizeSourceIds($sourceIds, $targetId);
-        $target = Tag::find()->id($targetId)->status(null)->one();
-        $titles = empty($sourceIds)
-            ? []
-            : Tag::find()->id($sourceIds)->status(null)->select(['elements.id', 'elements_sites.title'])->pairs();
+        $target = $this->getWritableItem($targetId);
 
         $sources = [];
         foreach ($sourceIds as $id) {
             $sources[$id] = [
                 'id' => $id,
-                'title' => (string)($titles[$id] ?? ''),
+                'title' => (string)($this->getWritableItem($id)?->title ?? ''),
                 'relations' => 0,
                 'moved' => 0,
                 'deduped' => 0,
@@ -268,23 +373,67 @@ class Tags extends Component
             'sources' => array_values($sources),
             'moved' => $moved,
             'deduped' => $deduped,
+            'urls' => empty($sourceIds) ? [] : $this->urlReport($sourceIds, $targetId),
         ];
     }
 
     /**
-     * Deletes the given tags, but only those that are still unused when the
-     * delete runs — a tag that gained a relation since it was listed is left
-     * alone and reported back.
+     * The URLs a merge of $sourceIds into $targetId would retire: one row per
+     * source item per site where it has a URI, with the target's URL in that
+     * site (null when the target has no URL there). Ordered by site, then by
+     * source ID.
      *
-     * @param int[] $tagIds
+     * @param int[] $sourceIds
+     * @return array<int, array{siteId: int, siteHandle: string, sourceId: int, sourceTitle: string, oldUrl: string, newUrl: ?string}>
+     */
+    public function urlReport(array $sourceIds, int $targetId): array
+    {
+        $sourceIds = $this->_normalizeSourceIds($sourceIds, $targetId);
+        $rows = [];
+
+        foreach (Craft::$app->getSites()->getAllSites() as $site) {
+            $target = null;
+            $targetLoaded = false;
+
+            foreach ($sourceIds as $id) {
+                $item = $this->getWritableItem($id, $site->id);
+                $oldUrl = $item?->getUrl();
+                if ($oldUrl === null) {
+                    continue;
+                }
+                if (!$targetLoaded) {
+                    $target = $this->getWritableItem($targetId, $site->id);
+                    $targetLoaded = true;
+                }
+                $rows[] = [
+                    'siteId' => (int)$site->id,
+                    'siteHandle' => (string)$site->handle,
+                    'sourceId' => $id,
+                    'sourceTitle' => (string)$item->title,
+                    'oldUrl' => $oldUrl,
+                    'newUrl' => $target?->getUrl(),
+                ];
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Deletes the given items, but only those that are still unused when the
+     * delete runs — an item that gained a relation since it was listed is left
+     * alone and reported back. IDs that aren't writable items are reported as
+     * failed.
+     *
+     * @param int[] $ids
      * @return array{deleted: int[], skipped: int[], failed: int[]}
      */
-    public function deleteUnusedTags(array $tagIds): array
+    public function deleteUnused(array $ids): array
     {
         $result = ['deleted' => [], 'skipped' => [], 'failed' => []];
-        $tagIds = array_values(array_unique(array_filter(array_map(fn($id) => (int)$id, $tagIds))));
+        $ids = array_values(array_unique(array_filter(array_map(fn($id) => (int)$id, $ids))));
 
-        foreach ($tagIds as $id) {
+        foreach ($ids as $id) {
             $used = (new Query())
                 ->from(['{{%relations}}'])
                 ->where(['targetId' => $id])
@@ -293,7 +442,7 @@ class Tags extends Component
                 $result['skipped'][] = $id;
                 continue;
             }
-            if ($this->deleteTag($id)) {
+            if ($this->delete($id)) {
                 $result['deleted'][] = $id;
             } else {
                 $result['failed'][] = $id;
@@ -301,6 +450,85 @@ class Tags extends Component
         }
 
         return $result;
+    }
+
+    /**
+     * Whether $user may merge $sourceIds into $targetId as far as the items
+     * themselves go: save the target and delete every source. Relations owned
+     * by other elements are checked separately by {@see canRepointRelations()}.
+     *
+     * @param int[] $sourceIds
+     */
+    public function canMergeItems(array $sourceIds, int $targetId, User $user): bool
+    {
+        $target = $this->getWritableItem($targetId);
+        if ($target === null || !Craft::$app->getElements()->canSave($target, $user)) {
+            return false;
+        }
+        return $this->canDeleteItems($this->_normalizeSourceIds($sourceIds, $targetId), $user);
+    }
+
+    /**
+     * Whether $user may delete every one of $ids. IDs that aren't writable
+     * items are ignored here; the delete itself skips them.
+     *
+     * @param int[] $ids
+     */
+    public function canDeleteItems(array $ids, User $user): bool
+    {
+        $elementsService = Craft::$app->getElements();
+        foreach ($ids as $id) {
+            $item = $this->getWritableItem((int)$id);
+            if ($item !== null && !$elementsService->canDelete($item, $user)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @deprecated in 5.5.0. Use {@see rename()}.
+     */
+    public function renameTag(int $tagId, string $newTitle, ?int $siteId = null): bool
+    {
+        return $this->rename($tagId, $newTitle, $siteId);
+    }
+
+    /**
+     * @deprecated in 5.5.0. Use {@see delete()}.
+     */
+    public function deleteTag(int $tagId): bool
+    {
+        return $this->delete($tagId);
+    }
+
+    /**
+     * @deprecated in 5.5.0. Use {@see deleteMany()}.
+     * @param int[] $tagIds
+     */
+    public function deleteTags(array $tagIds): int
+    {
+        return $this->deleteMany($tagIds);
+    }
+
+    /**
+     * @deprecated in 5.5.0. Use {@see merge()}, which also returns the URLs the
+     *             merge retired.
+     * @param int[] $sourceIds
+     */
+    public function mergeTags(array $sourceIds, int $targetId): bool
+    {
+        return $this->merge($sourceIds, $targetId)['success'];
+    }
+
+    /**
+     * @deprecated in 5.5.0. Use {@see deleteUnused()}.
+     * @param int[] $tagIds
+     * @return array{deleted: int[], skipped: int[], failed: int[]}
+     */
+    public function deleteUnusedTags(array $tagIds): array
+    {
+        return $this->deleteUnused($tagIds);
     }
 
     /**
@@ -466,6 +694,40 @@ class Tags extends Component
         }
 
         return [$relations, $toUpdate, $toDelete];
+    }
+
+    /**
+     * Deletes one writable item the way its source asks for: entries to the
+     * trash, tags outright.
+     */
+    private function _deleteItem(ElementInterface $item): bool
+    {
+        $source = Plugin::$plugin->sources->getSourceForElement($item);
+        $hardDelete = $source === null || !$source->softDeletes();
+        return Craft::$app->getElements()->deleteElement($item, $hardDelete);
+    }
+
+    /**
+     * Whether an item's title can be changed directly. Entry types without a
+     * title field generate titles from a format, which would undo a rename.
+     */
+    private function _hasEditableTitle(ElementInterface $item): bool
+    {
+        return !$item instanceof Entry || $item->getType()->hasTitleField;
+    }
+
+    /**
+     * IDs of every site an element exists in.
+     *
+     * @return int[]
+     */
+    private function _siteIds(int $elementId): array
+    {
+        return array_map('intval', (new Query())
+            ->select(['siteId'])
+            ->from(['{{%elements_sites}}'])
+            ->where(['elementId' => $elementId])
+            ->column());
     }
 
     /**

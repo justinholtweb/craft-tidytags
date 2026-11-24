@@ -218,7 +218,7 @@ class DuplicateDetector extends Component
         }
 
         foreach (Plugin::$plugin->sources->getConfiguredEntrySections() as $section) {
-            $candidateSources[] = Source::fromSection($section);
+            $candidateSources[] = Source::fromSection($section, Plugin::$plugin->sources->isSectionWritable($section));
         }
 
         $matches = [];

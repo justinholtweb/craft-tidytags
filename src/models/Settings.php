@@ -15,6 +15,15 @@ class Settings extends Model
     public array $tagLikeSectionUids = [];
 
     /**
+     * UIDs of tag-like sections whose entries Tidy Tags may rename, merge and
+     * delete. Must be a subset of {@see $tagLikeSectionUids}; any other UID is
+     * ignored. Sections not listed here stay read-only (swap only).
+     *
+     * @var string[]
+     */
+    public array $writableSectionUids = [];
+
+    /**
      * How titles are compared — {@see TitleMatcher::STRATEGY_FUZZY} or
      * {@see TitleMatcher::STRATEGY_STRICT}.
      *
@@ -103,7 +112,8 @@ class Settings extends Model
     public function rules(): array
     {
         return [
-            [['tagLikeSectionUids'], 'each', 'rule' => ['string']],
+            [['tagLikeSectionUids', 'writableSectionUids'], 'each', 'rule' => ['string']],
+            [['writableSectionUids'], 'filter', 'filter' => fn($uids) => $this->filterWritableSections($uids)],
             [
                 ['affixTokens', 'qualifierTokens'],
                 'filter',
@@ -118,6 +128,33 @@ class Settings extends Model
             [['pageSize'], 'integer', 'min' => 1, 'max' => 1000],
             [['duplicatesPageSize'], 'integer', 'min' => 1, 'max' => 500],
         ];
+    }
+
+    /**
+     * Drops writable sections that aren't also tag-like, so unticking a
+     * tag-like section also closes it to writes rather than failing to save.
+     *
+     * @param mixed $uids
+     * @return string[]
+     */
+    public function filterWritableSections(mixed $uids): array
+    {
+        if (!is_array($uids)) {
+            return [];
+        }
+        return array_values(array_intersect(
+            array_filter($uids, 'is_string'),
+            $this->tagLikeSectionUids,
+        ));
+    }
+
+    /**
+     * Whether the section with this UID is tag-like and opted into writes.
+     */
+    public function isSectionWritable(string $sectionUid): bool
+    {
+        return in_array($sectionUid, $this->tagLikeSectionUids, true)
+            && in_array($sectionUid, $this->writableSectionUids, true);
     }
 
     /**

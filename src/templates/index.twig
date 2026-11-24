@@ -6,6 +6,15 @@
 {% block content %}
 {% import "tidytags/_macros" as tt %}
 <div class="tidytags-dashboard">
+    {% if rows|filter(r => r.source.type == 'tag')|length %}
+        <div class="tidytags-callout tidytags-craft6">
+            <p>
+                Tags are deprecated in Craft 6, and tag groups may be converted to entry sections
+                when you upgrade. Clean them up first, then convert them yourself so you control the
+                result: run <code>php craft tidytags/entrify-check</code> for a per-group checklist.
+            </p>
+        </div>
+    {% endif %}
     {% if rows|length == 0 %}
         <p>
             No sources found. Create a tag group in <a href="{{ cpUrl('settings/tags') }}">Settings → Tags</a>,
@@ -33,7 +42,7 @@
                             <strong>{{ source.name }}</strong>
                             {{ tt.badge(source.type, source.typeLabel) }}
                             {% if not source.isWritable %}
-                                <span class="tidytags-note" title="Read-only: rename, merge, and delete are disabled for entry-backed sources.">read-only</span>
+                                <span class="tidytags-note" title="Read-only: allow rename, merge and delete for this section in the Tidy Tags settings.">read-only</span>
                             {% endif %}
                             <br>
                             <code class="tidytags-handle">{{ source.handle }}</code>

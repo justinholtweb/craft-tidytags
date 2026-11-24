@@ -1,10 +1,10 @@
 # Tidy Tags
 
-A tag manager for Craft CMS 5 with multi-site support, cross-source duplicate detection, and optional read-only support for entry-backed tags.
+Tidy Tags keeps your taxonomy clean, whether it lives in tag groups or entry sections. Built for Craft CMS 5, with multi-site support and duplicate detection across sources.
 
 Tidy Tags gives you a control panel section for auditing, cleaning, and merging tags across every site in your Craft install. It compares tags against each other *and* against tag-like entry sections (Teams, Competitions, Topics — anything you've entrified or that should stay aligned), shows usages inline, and watches tag fields while editors are working so they're nudged toward existing taxonomy before they create yet another `England` tag.
 
-If you've [entrified](https://craftcms.com/blog/entrification) your tags with `php craft entrify/tags`, you can point Tidy Tags at the resulting channel sections and they'll show up on the dashboard, in the duplicate scanner, and in the editor "did you mean?" warning alongside native tag groups. Entry-backed sources stay read-only for destructive actions but support relation swap — see [Tag-like entry sections](#tag-like-entry-sections) below.
+Tags are deprecated in Craft 6. If you've [entrified](https://craftcms.com/blog/entrification) your tags with `php craft entrify/tags`, point Tidy Tags at the resulting channel sections and they show up on the dashboard, in the duplicate scanner and in the editor "did you mean?" warning alongside native tag groups. Allow rename, merge and delete for a section, and you can clean its entries the same way you clean tags. See [Tag-like entry sections](#tag-like-entry-sections) and [Preparing for Craft 6](#preparing-for-craft-6).
 
 ## Requirements
 
@@ -59,7 +59,7 @@ The group view shows every tag in a group with per-site columns so you can see w
 - **Merge** two or more tags — relations are re-pointed to the target tag, duplicates are de-duped, and source tags are deleted in a single transaction
 - **Delete** one or more tags in bulk
 
-Rename, merge, and delete each need their own permission; see [Permissions](#permissions). All actions are multi-site aware. Choosing "All sites" in the filter shows every tag once (keyed to the primary site) with its translations in sibling columns; choosing a specific site scopes everything to that site.
+Entry sections get the same actions once they [allow rename, merge and delete](#allowing-rename-merge-and-delete). Rename, merge, and delete each need their own permission; see [Permissions](#permissions). All actions are multi-site aware. Choosing "All sites" in the filter shows every tag once (keyed to the primary site) with its translations in sibling columns; choosing a specific site scopes everything to that site.
 
 ### Matching strategies
 
@@ -148,6 +148,8 @@ Tidy Tags ships a small JS asset bundle that loads on every control panel page. 
 
 Each match shows the differentiator value (if configured) and links directly to the existing item, so an editor about to create `England` in a tag field is told that `England (Football)` already exists as a Team and given a one-click way to open it. The warning is informational — it never blocks the editor — but it nudges people toward reusing existing taxonomy instead of duplicating.
 
+The same warning appears on the **title field of entries in tag-like sections**, on the full edit page and in the slideout an Entries field opens for **New entry**. That covers vocabularies you've already converted to entries, where there's no tag field to type into. Matches come from every tag-like section, and the entry being edited is left out. On entries in other sections the first lookup switches the check off, so ordinary content costs one request per editor screen. Editors need Tidy Tags access to see the warning.
+
 ### Tag-like entry sections
 
 Craft's `php craft entrify/tags` command converts a tag group into a channel section, turning each tag into an entry. Once entrified, your "tags" are regular entries with URLs, bodies, drafts, authors, and revisions.
@@ -158,13 +160,23 @@ Tidy Tags can surface these sections alongside native tag groups so the dashboar
 2. Check each channel section you want surfaced under **Tag-like sections**.
 3. Save.
 
-**Entry-backed sources are read-only for destructive actions.** Rename, merge, and delete are tag-only because entries carry URLs, bodies, drafts, and authorship that can't be safely mutated through a tag-sized interface — and Craft already has better UIs for editing entries. You still get:
+Every tag-like section gets:
 
 - Dashboard counts (total + per-site)
 - Per-site title browsing and search
 - Within-source and cross-source duplicate clusters
 - **Swap relations** — the safe primitive that re-points relations from one entry to another without touching the entries themselves
 - Inclusion in the editor "did you mean?" warning when the editor is in a tag field
+
+#### Allowing rename, merge and delete
+
+A tag-like section is **read-only by default**, because entries can carry URLs, content and authors that a tag never had. For sections that hold a vocabulary rather than content, tick them under **Allow rename, merge and delete** in the settings (or list them in `writableSectionUids`). Only channel sections qualify. Those sections then get the same Rename, Merge and Delete actions as tag groups, on the Manage screen, on the Duplicates screen and in the console. A few things work differently from tags:
+
+- **Entries go to the trash.** Deleted and merged entries are soft-deleted, so you can restore them from the section's trash. Restoring a merged entry doesn't bring its relations back; they stay on the entry that was kept.
+- **Merging reports the URLs it retires.** If the section has URLs, the merge lists each old URL with the kept entry's URL in the same site. After a merge in the control panel, a notice offers the list as a CSV download (kept for a day). From the console, `--format=csv` prints it. Feed it to whatever redirect tool the site uses.
+- **Merging stays within one section and its sites.** Every entry must be in the kept entry's section. The kept entry must also exist in every site the merged entries exist in, and in every site whose relations would move to it. Otherwise Tidy Tags refuses the merge and says why.
+- **Entry permissions apply.** Renaming needs the right to save the entry. Deleting and merging need the right to delete each entry being removed, as well as Tidy Tags' own permissions.
+- **Generated titles can't be renamed.** If an entry type has no title field, its titles come from a format, and a rename would be overwritten on the next save, so Tidy Tags refuses it.
 
 ### Configuration file
 
@@ -192,6 +204,11 @@ return [
         'af2a1ee1-7a4b-4d9a-bc0b-6b3b5b9f3c8b', // teams
         'c4e1be83-7c18-47e3-b6aa-2b5d1b9a94d2', // competitions
     ],
+    // Tag-like sections whose entries may be renamed, merged and deleted.
+    // UIDs that aren't also in tagLikeSectionUids are ignored.
+    'writableSectionUids' => [
+        'af2a1ee1-7a4b-4d9a-bc0b-6b3b5b9f3c8b', // teams
+    ],
     'sourceFieldConfig' => [
         'af2a1ee1-7a4b-4d9a-bc0b-6b3b5b9f3c8b' => [
             'differentiator' => 'sport',
@@ -206,6 +223,26 @@ return [
 ```
 
 Use section UIDs (not IDs or handles) so the config is stable across environments. You can find a section's UID in the URL of its settings page, or via `php craft entries/sections`. Tag-group UIDs come from `php craft tags/groups` or the URL of the tag group's settings page.
+
+## Preparing for Craft 6
+
+Craft 6 deprecates Tags, and upgrading may convert your tag groups to entry sections for you. Converting them yourself on Craft 5 with `php craft entrify/tags` lets you choose the section and entry type. Cleaning up first means the duplicates and unused tags don't come along.
+
+Run the readiness check:
+
+```sh
+php craft tidytags/entrify-check
+php craft tidytags/entrify-check --format=json
+php craft tidytags/entrify-check --fail-on-issues   # exit 1 while any group has duplicates or unused tags
+```
+
+For each tag group it reports the number of tags, how many nothing uses, how many duplicate clusters the current match strategy finds, and which Tags fields point at the group. It then prints the commands to run, in order:
+
+1. Review duplicates with `tidytags/duplicates --source=group:<handle>` and merge them.
+2. Prune unused tags with `tidytags/unused --source=group:<handle> --delete --apply`.
+3. Convert with `php craft entrify/tags <handle>`.
+
+Then add the new section under **Settings → Tidy Tags** as a tag-like section, and allow rename, merge and delete for it so you can keep cleaning it here. The dashboard shows a reminder for as long as you have tag groups.
 
 ## Console commands
 
@@ -234,18 +271,19 @@ php craft tidytags/duplicates --fail-on-duplicates
 
 ### `tidytags/merge`
 
-Merges tags into one, exactly like the Merge button: relations move to the target, relations the target already has are dropped, and the merged tags are deleted, all in one transaction.
+Merges tags, or entries in a section that allows it, into one, exactly like the Merge button. Relations move to the target, relations the target already has are dropped, and the merged items are deleted (entries to the trash), all in one transaction.
 
 ```sh
-php craft tidytags/merge --into=12 34 56          # dry run
-php craft tidytags/merge --into=12 34,56 --apply  # merge
+php craft tidytags/merge --into=12 34 56                     # dry run
+php craft tidytags/merge --into=12 34,56 --apply             # merge
+php craft tidytags/merge --into=12 34 --apply --format=csv   # merge, printing the retired URLs as CSV
 ```
 
-**It is a dry run unless you pass `--apply`.** The dry run lists each tag with how many of its relations would move and how many would be dropped. `--dry-run` always wins, even next to `--apply`. Every tag must be a tag (not an entry) in the target's tag group; otherwise nothing is merged. `--format=json` prints the plan as JSON.
+**It is a dry run unless you pass `--apply`.** The dry run lists each item with how many of its relations would move and how many would be dropped, plus any URLs the merge would retire. `--dry-run` always wins, even next to `--apply`. Every item must be in the target's tag group or section, and pass the [entry merge rules](#allowing-rename-merge-and-delete); otherwise nothing is merged. `--format=json` prints the plan as JSON. `--format=csv` prints only the URL map (`site,sourceId,sourceTitle,oldUrl,newUrl`).
 
 ### `tidytags/unused`
 
-Lists tags that nothing relates to — no row in `{{%relations}}` targets them from any field, element or site — and optionally deletes them.
+Lists tags and tag-like entries that nothing relates to — no row in `{{%relations}}` targets them from any field, element or site — and optionally deletes them.
 
 ```sh
 php craft tidytags/unused
@@ -254,7 +292,7 @@ php craft tidytags/unused --delete                 # dry run
 php craft tidytags/unused --delete --apply         # delete
 ```
 
-Unused entries in tag-like sections are listed too, but **never deleted**: `--delete` only removes tags, and refuses an entry-backed `--source`. **`--delete` is a dry run unless you pass `--apply`**, and `--dry-run` always wins. Each tag is checked again just before it is deleted, so one that picked up a relation since the scan is kept and reported.
+`--delete` removes unused tags, and unused entries in sections that allow it (to the trash). Entries in read-only sections are listed but never deleted, and `--delete` refuses a read-only `--source`. **`--delete` is a dry run unless you pass `--apply`**, and `--dry-run` always wins. Each item is checked again just before it is deleted, so one that picked up a relation since the scan is kept and reported.
 
 ### Output and exit codes
 
@@ -263,19 +301,19 @@ Unused entries in tag-like sections are listed too, but **never deleted**: `--de
 | Exit | Meaning |
 | --- | --- |
 | `0` | Success, or a dry run |
-| `1` | `--fail-on-duplicates` found duplicates, a merge failed (and was rolled back), or a tag couldn't be deleted |
+| `1` | `--fail-on-duplicates` found duplicates, `--fail-on-issues` found a group to clean, a merge failed (and was rolled back), or an item couldn't be deleted |
 | `64` | Bad options or arguments |
-| `65` | The tags can't be merged (not tags, or in different groups) |
+| `65` | The items can't be merged (not writable, in different groups or sections, or missing from a site) |
 
 ## Permissions
 
 | Permission | Allows |
 | --- | --- |
 | `accessPlugin-tidytags` | Browsing sources, the Duplicates scanner, and the usage lookups |
-| `tidytags-manageTags` | Renaming tags and swapping relations |
-| `tidytags-deleteTags` | Deleting tags (nested under *manage*) |
+| `tidytags-manageTags` | Renaming tags and tag-like entries, and swapping relations |
+| `tidytags-deleteTags` | Deleting tags and tag-like entries (nested under *manage*) |
 
-Merging needs both *manage* and *delete*, since it deletes the merged tags.
+Merging needs both *manage* and *delete*, since it deletes the merged items. For entries, Craft's own entry permissions apply on top: renaming needs the right to save the entry, and deleting or merging needs the right to delete each entry being removed.
 
 Merge and swap also edit every element that holds a relation to the tags involved, so they check that the user can save each of those elements. Someone who can't edit entries in a section can't merge or swap tags that those entries use. Swap only accepts tags and entries in configured tag-like sections, and the usage lookup leaves out elements the user can't view.
 
@@ -283,13 +321,15 @@ Admins have every permission. Before 5.3.0, plugin access was enough for every a
 
 ## How merging works
 
-When you merge tags, Tidy Tags:
+When you merge tags or entries, Tidy Tags:
 
-1. Starts a database transaction.
-2. Reads every row in `{{%relations}}` whose `targetId` is one of the source tags.
-3. For each such row, checks whether a relation with the same `fieldId`, `sourceId`, and `sourceSiteId` already points at the target tag. If so, the source row is deleted (it would otherwise become a duplicate); if not, it's updated to point at the target.
-4. Deletes each source tag element (all sites) via `Craft::$app->elements->deleteElement()`.
-5. Commits the transaction.
+1. Checks the merge is allowed: same tag group or section, every item writable, and for entries the site rules above.
+2. Records the URLs the merged items have in each site, with the kept item's URL there.
+3. Starts a database transaction.
+4. Reads every row in `{{%relations}}` whose `targetId` is one of the source items.
+5. For each such row, checks whether a relation with the same `fieldId`, `sourceId`, and `sourceSiteId` already points at the target. If so, the source row is deleted (it would otherwise become a duplicate); if not, it's updated to point at the target.
+6. Deletes each source item (all sites) via `Craft::$app->elements->deleteElement()`: tags outright, entries to the trash.
+7. Commits the transaction.
 
 This preserves every entry's relationship to the merged tag while cleaning up redundant rows.
 
@@ -306,18 +346,21 @@ Merge and swap rewrite `{{%relations}}` directly, so afterwards they invalidate 
 
 ## Configuration
 
-Plugin-wide settings (match strategy, affix and qualifier tokens, tag-like sections, per-source field config, and page sizes) live on the **Settings → Plugins → Tidy Tags** screen and can be overlaid from `config/tidytags.php`; see [Configuration file](#configuration-file) above. The duplicate similarity threshold is a query parameter on the Duplicates page (`?threshold=N`), and the "did you mean" endpoint accepts `title`, `groupId`, and `siteId` parameters if you want to call it from your own code.
+Plugin-wide settings (match strategy, affix and qualifier tokens, tag-like and writable sections, per-source field config, and page sizes) live on the **Settings → Plugins → Tidy Tags** screen and can be overlaid from `config/tidytags.php`; see [Configuration file](#configuration-file) above. The duplicate similarity threshold is a query parameter on the Duplicates page (`?threshold=N`), and the "did you mean" endpoint accepts `title`, `groupId`, and `siteId` parameters if you want to call it from your own code.
 
 ## Action endpoints
 
 | Action | Method | Params |
 | --- | --- | --- |
-| `tidytags/tags/check-duplicate` | GET | `title`, `groupId`, `siteId` |
+| `tidytags/tags/check-duplicate` | GET | `title`, `groupId` or `elementId`, `siteId` |
 | `tidytags/tags/usages` | GET | `elementId` |
 | `tidytags/tags/rename` | POST | `tagId`, `title`, `siteId` |
 | `tidytags/tags/delete` | POST | `tagId` or `tagIds[]` |
 | `tidytags/tags/merge` | POST | `targetId`, `sourceIds[]` |
 | `tidytags/tags/swap` | POST | `targetId`, `sourceIds[]` |
+| `tidytags/tags/url-report` | GET | `report` |
+
+`tagId` and `tagIds[]` accept entry IDs from sections that allow rename, merge and delete. As JSON, merge returns `success`, `message` (why it was refused), `urls` (the retired URLs) and `urlReport` (a CSV download link, or null when no URLs were retired). The CSV link only works for the user who ran the merge, for a day.
 
 Every endpoint requires `accessPlugin-tidytags`. The same operations are available as [console commands](#console-commands). The mutating endpoints also need a CSRF token and the permissions listed under [Permissions](#permissions).
 
