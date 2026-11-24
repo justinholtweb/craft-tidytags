@@ -14,7 +14,7 @@
 ### Changed
 
 - Merge refuses to run, and says why, when an item isn't writable, the items are in different tag groups or sections, or the kept entry is missing from a site the others (or their relations) are in. Previously the control panel merge didn't re-check these rules.
-- Renaming an entry needs the right to save it. Deleting or merging entries needs the right to delete each one removed.
+- Renaming needs the right to edit every site the item is renamed in, and to save its copy there. Deleting or merging entries needs the right to delete each one removed.
 - The merge action's JSON now includes `message`, `urls` and `urlReport` as well as `success`.
 - Console messages say "item(s)" instead of "tag(s)" where entries can be involved. `tidytags/merge` now accepts `--format=csv`.
 

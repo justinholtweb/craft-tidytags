@@ -453,6 +453,36 @@ class Tags extends Component
     }
 
     /**
+     * Whether $user may rename item $id in $siteId, or in every site it exists
+     * in when $siteId is null: they must be able to edit each of those sites
+     * and save the item's copy in each.
+     */
+    public function canRename(int $id, ?int $siteId, User $user): bool
+    {
+        $sitesService = Craft::$app->getSites();
+        $sites = $siteId !== null
+            ? array_filter([$sitesService->getSiteById($siteId, true)])
+            : $sitesService->getAllSites(true);
+        $multiSite = Craft::$app->getIsMultiSite();
+        $elementsService = Craft::$app->getElements();
+
+        foreach ($sites as $site) {
+            $item = $this->getWritableItem($id, (int)$site->id);
+            if ($item === null) {
+                continue;
+            }
+            if ($multiSite && !$user->can("editSite:{$site->uid}")) {
+                return false;
+            }
+            if (!$elementsService->canSave($item, $user)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * Whether $user may merge $sourceIds into $targetId as far as the items
      * themselves go: save the target and delete every source. Relations owned
      * by other elements are checked separately by {@see canRepointRelations()}.

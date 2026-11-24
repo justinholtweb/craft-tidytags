@@ -89,9 +89,9 @@ class TagsController extends Controller
         $siteIdParam = $request->getBodyParam('siteId');
         $siteId = ($siteIdParam !== null && $siteIdParam !== '') ? (int)$siteIdParam : null;
 
-        $item = Plugin::$plugin->tags->getWritableItem($tagId, $siteId);
-        if ($item !== null && !Craft::$app->getElements()->canSave($item, static::currentUser())) {
-            throw new ForbiddenHttpException('You can\'t edit this item.');
+        $user = static::currentUser();
+        if ($user === null || !Plugin::$plugin->tags->canRename($tagId, $siteId, $user)) {
+            throw new ForbiddenHttpException('You can\'t edit this item in every site it would be renamed in.');
         }
 
         $ok = Plugin::$plugin->tags->rename($tagId, $newTitle, $siteId);

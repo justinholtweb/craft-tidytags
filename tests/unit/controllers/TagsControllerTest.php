@@ -632,4 +632,31 @@ class TagsControllerTest extends PluginTestCase
         self::assertFalse($data['applies']);
         self::assertSame([], $data['matches']);
     }
+
+    public function testRenameAcrossSitesNeedsEditRightsInEverySite(): void
+    {
+        $second = Fixtures::createSite('secondary', 'Secondary');
+        $primary = Craft::$app->getSites()->getPrimarySite();
+        $group = Fixtures::createTagGroup('animals');
+        $tag = Fixtures::createTag($group, 'Cat');
+
+        Fixtures::login(Fixtures::createUser('tagger', false, [
+            'accessPlugin-tidytags',
+            Plugin::PERMISSION_MANAGE_TAGS,
+            "editSite:{$primary->uid}",
+        ]));
+
+        // One site the user can edit: allowed.
+        $this->preparePostRequest(['tagId' => $tag->id, 'title' => 'Feline', 'siteId' => $primary->id]);
+        self::assertTrue($this->controller()->actionRename()->data['success']);
+
+        // Every site, including one they can't edit: refused, nothing changes there.
+        $this->preparePostRequest(['tagId' => $tag->id, 'title' => 'Chat']);
+        try {
+            $this->controller()->actionRename();
+            self::fail('Expected a 403.');
+        } catch (ForbiddenHttpException) {
+        }
+        self::assertSame('Cat', Tag::find()->id($tag->id)->siteId($second->id)->status(null)->one()->title);
+    }
 }
