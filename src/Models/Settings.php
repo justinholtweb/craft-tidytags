@@ -63,7 +63,7 @@ class Settings extends PluginSettings
      * Per-section field configuration, keyed by section UID: `differentiator` (a field handle
      * that separates same-named items) and `display` (field handles shown beside each item).
      *
-     * @var array<string, array{differentiator?: string|null, display?: list<string>|null}>|null
+     * @var array<string, array<string, mixed>>|null
      */
     public ?array $sourceFieldConfig = [];
 

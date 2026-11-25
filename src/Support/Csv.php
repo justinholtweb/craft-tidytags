@@ -13,8 +13,8 @@ final class Csv
     /**
      * Builds a CSV document from a header row and data rows.
      *
-     * @param string[] $headers
-     * @param array<int, array<int, scalar|null>> $rows
+     * @param  string[]  $headers
+     * @param  array<int, array<int, scalar|null>>  $rows
      */
     public static function build(array $headers, array $rows): string
     {
@@ -24,8 +24,9 @@ final class Csv
             fputcsv($handle, array_map([self::class, 'cell'], $row), ',', '"', '');
         }
         rewind($handle);
-        $csv = (string)stream_get_contents($handle);
+        $csv = (string) stream_get_contents($handle);
         fclose($handle);
+
         return $csv;
     }
 
@@ -40,11 +41,12 @@ final class Csv
             return '';
         }
         if (is_int($value) || is_float($value)) {
-            return (string)$value;
+            return (string) $value;
         }
-        $value = (string)$value;
+        $value = (string) $value;
+
         return $value !== '' && in_array($value[0], ['=', '+', '-', '@', "\t", "\r"], true)
-            ? "'" . $value
+            ? "'".$value
             : $value;
     }
 }

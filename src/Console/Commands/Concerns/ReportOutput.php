@@ -7,6 +7,7 @@ namespace JustinHoltWeb\TidyTags\Console\Commands\Concerns;
 use Illuminate\Console\Command;
 use JustinHoltWeb\TidyTags\Support\Csv;
 use Symfony\Component\Console\Output\ConsoleOutputInterface;
+use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * Output for the Tidy Tags commands. Reports go to stdout as a table (for people), JSON or CSV (for
@@ -68,7 +69,7 @@ trait ReportOutput
 
     protected function outputJson(mixed $data): void
     {
-        $this->getOutput()->writeln((string) json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), \Symfony\Component\Console\Output\OutputInterface::OUTPUT_RAW);
+        $this->getOutput()->writeln((string) json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), OutputInterface::OUTPUT_RAW);
     }
 
     /**
@@ -77,6 +78,6 @@ trait ReportOutput
      */
     protected function outputCsv(array $headers, array $rows): void
     {
-        $this->getOutput()->write(Csv::build($headers, $rows), false, \Symfony\Component\Console\Output\OutputInterface::OUTPUT_RAW);
+        $this->getOutput()->write(Csv::build($headers, $rows), false, OutputInterface::OUTPUT_RAW);
     }
 }

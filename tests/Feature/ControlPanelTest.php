@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use CraftCms\Cms\Entry\Elements\Entry;
+use CraftCms\Cms\Support\Facades\Elements;
 use JustinHoltWeb\TidyTags\Http\Controllers\ItemsController;
 use JustinHoltWeb\TidyTags\Plugin;
 
@@ -97,7 +98,7 @@ it('refuses a swap involving an ID that isn’t a live source element', function
     $target = $this->createEntry($teams, 'Arsenal');
     $gone = $this->createEntry($teams, 'Arsenl');
     $this->configure([$teams]);
-    \CraftCms\Cms\Support\Facades\Elements::deleteElement($gone);
+    Elements::deleteElement($gone);
 
     $this->actingAs($this->admin())
         ->postJson(cp_url('tidytags/tags/swap'), ['sourceIds' => [$gone->id, 999999], 'targetId' => $target->id])

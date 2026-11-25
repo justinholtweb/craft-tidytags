@@ -86,17 +86,18 @@ class DuplicateDetector
     /**
      * Finds all near-duplicate clusters across every configured source.
      *
-     * @return array<int, array{source: Source, clusters: array}>
+     * @return list<array{source: Source, clusters: array<int, array<int, array<string, mixed>>>}>
      */
     public function findAllDuplicates(?int $siteId = null, ?int $threshold = null): array
     {
         $out = [];
         foreach ($this->sources->getAllSources() as $source) {
             $clusters = $this->findDuplicates($source, $siteId, $threshold);
-            if (!empty($clusters)) {
+            if (! empty($clusters)) {
                 $out[] = ['source' => $source, 'clusters' => $clusters];
             }
         }
+
         return $out;
     }
 
@@ -164,7 +165,7 @@ class DuplicateDetector
         }
 
         $total = count($all);
-        $totalPages = max(1, (int)ceil($total / $perPage));
+        $totalPages = max(1, (int) ceil($total / $perPage));
         $page = min(max(1, $page), $totalPages);
         $slice = array_slice($all, ($page - 1) * $perPage, $perPage);
 
@@ -237,7 +238,7 @@ class DuplicateDetector
             }
         }
 
-        usort($matches, fn($a, $b) => $a['distance'] <=> $b['distance']);
+        usort($matches, fn ($a, $b) => $a['distance'] <=> $b['distance']);
         $matches = array_slice($matches, 0, $limit);
 
         [$enriched] = $this->_enrichClusters([$matches], $this->_byUid($candidateSources), $siteId) + [[]];
@@ -259,7 +260,7 @@ class DuplicateDetector
         return $this->_cached(
             ['clusters', $source->uid, $siteId, $this->_matchFingerprint($threshold), $this->_differentiatorFingerprint([$source])],
             [$source],
-            fn() => $this->_clusterRecords($this->_records($source, $siteId), $threshold),
+            fn () => $this->_clusterRecords($this->_records($source, $siteId), $threshold),
         );
     }
 
@@ -267,18 +268,18 @@ class DuplicateDetector
      * Clusters pooled across sources, keeping only those that span more than
      * one source, cached.
      *
-     * @param Source[] $sources
+     * @param  Source[]  $sources
      * @return array<int, array<int, array<string, mixed>>>
      */
     private function _crossClusters(array $sources, int $siteId, int $threshold): array
     {
-        $uids = array_map(fn(Source $s) => $s->uid, $sources);
+        $uids = array_map(fn (Source $s) => $s->uid, $sources);
         sort($uids);
 
         return $this->_cached(
             ['cross', $uids, $siteId, $this->_matchFingerprint($threshold), $this->_differentiatorFingerprint($sources)],
             $sources,
-            function() use ($sources, $siteId, $threshold) {
+            function () use ($sources, $siteId, $threshold) {
                 $records = [];
                 foreach ($sources as $source) {
                     array_push($records, ...$this->_records($source, $siteId));
@@ -286,7 +287,7 @@ class DuplicateDetector
 
                 return array_values(array_filter(
                     $this->_clusterRecords($records, $threshold),
-                    fn(array $cluster) => count(array_unique(array_column($cluster, 'sourceUid'))) > 1,
+                    fn (array $cluster) => count(array_unique(array_column($cluster, 'sourceUid'))) > 1,
                 ));
             },
         );
@@ -310,7 +311,7 @@ class DuplicateDetector
         return $this->_cached(
             ['records', $source->uid, $siteId, $differentiatorHandle],
             [$source],
-            function() use ($source, $siteId, $sources, $differentiatorHandle) {
+            function () use ($source, $siteId, $sources, $differentiatorHandle) {
                 $matcher = $this->_matcher();
                 $query = $sources->baseQuery($source)->siteId($siteId);
                 $records = [];
@@ -318,20 +319,22 @@ class DuplicateDetector
                 if ($differentiatorHandle === null) {
                     $pairs = $query->pluck('elements_sites.title', 'elements.id');
                     foreach ($pairs as $id => $title) {
-                        $records[] = $this->_record((int)$id, (string)$title, null, $source, $matcher);
+                        $records[] = $this->_record((int) $id, (string) $title, null, $source, $matcher);
                     }
+
                     return $records;
                 }
 
                 foreach ($query->cursor() as $element) {
                     $records[] = $this->_record(
-                        (int)$element->id,
-                        (string)$element->title,
+                        (int) $element->id,
+                        (string) $element->title,
                         $sources->readFieldValue($element, $differentiatorHandle),
                         $source,
                         $matcher,
                     );
                 }
+
                 return $records;
             },
         );
@@ -356,8 +359,8 @@ class DuplicateDetector
      * the elements those clusters contain. Records whose element has gone are
      * dropped, along with any cluster left with fewer than two items.
      *
-     * @param array<int, array<int, array<string, mixed>>> $clusters
-     * @param array<string, Source> $sourcesByUid
+     * @param  array<int, array<int, array<string, mixed>>>  $clusters
+     * @param  array<string, Source>  $sourcesByUid
      * @return array<int, array<int, array<string, mixed>>>
      */
     private function _enrichClusters(array $clusters, array $sourcesByUid, int $siteId): array
@@ -422,9 +425,9 @@ class DuplicateDetector
             : null;
 
         return [
-            'id' => (int)$element->id,
-            'title' => (string)$element->title,
-            'siteId' => (int)$element->siteId,
+            'id' => (int) $element->id,
+            'title' => (string) $element->title,
+            'siteId' => (int) $element->siteId,
             'cpEditUrl' => $element->getCpEditUrl(),
             'displayValues' => $displayValues,
             'differentiator' => $differentiator,
@@ -449,7 +452,7 @@ class DuplicateDetector
      * than a scan of every later item, but the result is the same as comparing
      * every pair.
      *
-     * @param array<int, array<string, mixed>> $records
+     * @param  array<int, array<string, mixed>>  $records
      * @return array<int, array<int, array<string, mixed>>>
      */
     private function _clusterRecords(array $records, int $threshold): array
@@ -480,10 +483,10 @@ class DuplicateDetector
                 }
                 // A strict candidate is a match by construction; a fuzzy one
                 // only shares an indexed segment and still needs measuring.
-                if (!$strict && $matcher->compareFuzzyNormalized($seed['normalized'], $records[$j]['normalized'], $threshold) === null) {
+                if (! $strict && $matcher->compareFuzzyNormalized($seed['normalized'], $records[$j]['normalized'], $threshold) === null) {
                     continue;
                 }
-                if (!$this->_differentiatorCompatible($seed['differentiator'], $records[$j]['differentiator'])) {
+                if (! $this->_differentiatorCompatible($seed['differentiator'], $records[$j]['differentiator'])) {
                     continue;
                 }
                 $cluster[] = $records[$j];
@@ -502,7 +505,7 @@ class DuplicateDetector
      * Strict matching is an equivalence on {@see TitleMatcher::strictKey()}, so
      * an item's candidates are exactly the items sharing its key.
      *
-     * @param array<int, array<string, mixed>> $records
+     * @param  array<int, array<string, mixed>>  $records
      * @return callable(int): int[]
      */
     private function _strictCandidates(array $records): callable
@@ -515,7 +518,7 @@ class DuplicateDetector
             $buckets[$keys[$i]][] = $i;
         }
 
-        return fn(int $i): array => $buckets[$keys[$i]];
+        return fn (int $i): array => $buckets[$keys[$i]];
     }
 
     /**
@@ -533,7 +536,7 @@ class DuplicateDetector
      *
      * Lengths and offsets are in bytes, as levenshtein() measures them.
      *
-     * @param array<int, array<string, mixed>> $records
+     * @param  array<int, array<string, mixed>>  $records
      * @return callable(int): int[]
      */
     private function _fuzzyCandidates(array $records, int $threshold): callable
@@ -553,14 +556,15 @@ class DuplicateDetector
             }
             if ($length <= $t) {
                 $tiny[] = $i;
+
                 continue;
             }
             foreach ($this->_segments($length, $t) as $s => [$offset, $segmentLength]) {
-                $index["$length:$s:" . substr($record['normalized'], $offset, $segmentLength)][] = $i;
+                $index["$length:$s:".substr($record['normalized'], $offset, $segmentLength)][] = $i;
             }
         }
 
-        return function(int $i) use ($records, $lengths, $index, $tiny, $short, $t): array {
+        return function (int $i) use ($records, $lengths, $index, $tiny, $short, $t): array {
             $normalized = $records[$i]['normalized'];
             $length = $lengths[$i];
             $found = [];
@@ -571,7 +575,7 @@ class DuplicateDetector
                         $from = max(0, $offset - $t);
                         $to = min($length - $segmentLength, $offset + $t);
                         for ($start = $from; $start <= $to; $start++) {
-                            $key = "$target:$s:" . substr($normalized, $start, $segmentLength);
+                            $key = "$target:$s:".substr($normalized, $start, $segmentLength);
                             foreach ($index[$key] ?? [] as $j) {
                                 $found[$j] = true;
                             }
@@ -588,6 +592,7 @@ class DuplicateDetector
 
             $candidates = array_keys($found);
             sort($candidates);
+
             return $candidates;
         };
     }
@@ -630,16 +635,18 @@ class DuplicateDetector
         if ($a === null || $a === '' || $b === null || $b === '') {
             return true;
         }
+
         return mb_strtolower(trim($a)) === mb_strtolower(trim($b));
     }
 
     /**
      * Caches a scan result until the next entry save or delete ({@see forget()}).
      *
-     * @param array<int, mixed> $key
-     * @param Source[] $sources
+     * @param  array<int, mixed>  $key
+     * @param  Source[]  $sources
+     * @param  \Closure(): mixed  $build
      */
-    private function _cached(array $key, array $sources, callable $build): mixed
+    private function _cached(array $key, array $sources, \Closure $build): mixed
     {
         $generation = (string) Cache::get(self::GENERATION_KEY, '0');
 
@@ -653,6 +660,8 @@ class DuplicateDetector
     /**
      * Everything about the active match settings that changes which titles
      * match, for use in cache keys.
+     *
+     * @return list<mixed>
      */
     private function _matchFingerprint(int $threshold): array
     {
@@ -662,11 +671,12 @@ class DuplicateDetector
         }
 
         $settings = app(Settings::class);
+
         return [TitleMatcher::STRATEGY_STRICT, $settings->getAffixTokens(), $settings->getQualifierTokens()];
     }
 
     /**
-     * @param Source[] $sources
+     * @param  Source[]  $sources
      * @return array<string, ?string>
      */
     private function _differentiatorFingerprint(array $sources): array
@@ -675,11 +685,12 @@ class DuplicateDetector
         foreach ($sources as $source) {
             $handles[$source->uid] = $this->sources->getDifferentiatorHandle($source);
         }
+
         return $handles;
     }
 
     /**
-     * @param Source[] $sources
+     * @param  Source[]  $sources
      * @return array<string, Source>
      */
     private function _byUid(array $sources): array
@@ -688,6 +699,7 @@ class DuplicateDetector
         foreach ($sources as $source) {
             $out[$source->uid] = $source;
         }
+
         return $out;
     }
 

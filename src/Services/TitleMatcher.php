@@ -32,6 +32,7 @@ use JustinHoltWeb\TidyTags\Models\Settings;
 class TitleMatcher
 {
     public const STRATEGY_FUZZY = 'fuzzy';
+
     public const STRATEGY_STRICT = 'strict';
 
     /**
@@ -157,7 +158,7 @@ class TitleMatcher
      */
     public function strictKey(string $title): string
     {
-        return implode(' ', $this->qualifiers($title)) . "\0" . $this->coreKey($title);
+        return implode(' ', $this->qualifiers($title))."\0".$this->coreKey($title);
     }
 
     /**

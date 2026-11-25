@@ -193,6 +193,9 @@ class Sources
         return $this->listingQuery($source, $siteId, $search)->count();
     }
 
+    /**
+     * @return EntryQuery<Entry>
+     */
     private function listingQuery(Source $source, ?int $siteId, ?string $search): EntryQuery
     {
         $query = $this->baseQuery($source)->siteId($siteId ?? Sites::getPrimarySite()->id);
@@ -234,6 +237,8 @@ class Sources
 
     /**
      * Every entry in a source, disabled ones included. All reads go through this.
+     *
+     * @return EntryQuery<Entry>
      */
     public function baseQuery(Source $source): EntryQuery
     {

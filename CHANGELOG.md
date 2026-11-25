@@ -1,6 +1,6 @@
 # Changelog
 
-## 6.0.0-beta.1 - Unreleased
+## 6.0.0-beta.1 - 2026-11-25
 
 Tidy Tags for Craft CMS 6, rebuilt as a native Craft 6 plugin. It runs on Laravel and has no
 dependency on the Yii 2 adapter. Craft 6 has no Tags, so every source is a tag-like entry section.
@@ -28,7 +28,7 @@ Craft 6 is in beta, and so is this release. Update to Tidy Tags 5.5 before upgra
   `deleteTag()`, `deleteTags()`, `mergeTags()` and `deleteUnusedTags()`. The service is now
   `JustinHoltWeb\TidyTags\Services\Items`.
 
-## 5.5.0 - Unreleased
+## 5.5.0 - 2026-11-25
 
 ### Added
 

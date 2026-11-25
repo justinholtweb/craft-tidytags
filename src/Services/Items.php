@@ -297,7 +297,7 @@ class Items
         foreach ($sourceIds as $id) {
             $sources[$id] = [
                 'id' => $id,
-                'title' => (string) ($this->getWritableItem($id)?->title ?? ''),
+                'title' => (string) ($this->getWritableItem($id)->title ?? ''),
                 'relations' => 0,
                 'moved' => 0,
                 'deduped' => 0,
@@ -321,7 +321,7 @@ class Items
         }
 
         return [
-            'target' => ['id' => $targetId, 'title' => (string) ($target?->title ?? '')],
+            'target' => ['id' => $targetId, 'title' => (string) ($target->title ?? '')],
             'sources' => array_values($sources),
             'moved' => $moved,
             'deduped' => $deduped,
